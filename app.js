@@ -1,23 +1,465 @@
 const SUPABASE_URL='http://127.0.0.1:54321';
 const SUPABASE_ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0';
-
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_ANON);
 let currentUser=null;
-let activeTab='wellbeing';
+let activeView='dashboard';
 
-const TABS=[
-  {id:'wellbeing',label:'Wellbeing'},
-  {id:'claims',label:'Claims'},
-  {id:'finance',label:'Finance'},
-  {id:'telemedicine',label:'Telehealth'},
-  {id:'charting',label:'EHR'},
-  {id:'roster',label:'Roster'},
-  {id:'risk',label:'Risk/Legal'},
-  {id:'practice',label:'Practice'},
-  {id:'scribe',label:'AI Scribe'},
-  {id:'referrals',label:'Referrals'}
-];
+/* ─── HELPERS ─── */
+function $(id){return document.getElementById(id)}
+function show(el){el&&el.classList.remove('hidden')}
+function hide(el){el&&el.classList.add('hidden')}
+function fmtDate(d){if(!d)return'—';return new Date(d).toLocaleDateString('en-ZA',{day:'2-digit',month:'short',year:'numeric'})}
+function fmtDateTime(d){if(!d)return'—';return new Date(d).toLocaleString('en-ZA',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}
+function fmtMoney(n){if(n==null||n==='')return'R0';return'R'+Number(n).toLocaleString('en-ZA',{minimumFractionDigits:0,maximumFractionDigits:2})}
+function tag(status){return`<span class="tag tag-${status}">${(status||'').replace(/_/g,' ')}</span>`}
 
+function toast(msg,isError){
+  const t=$('toast');t.textContent=msg;
+  t.className='toast'+(isError?' error':'')+' show';
+  setTimeout(()=>t.className='toast',3000);
+}
+
+function stat(icon,label,value,color){
+  return`<div class="stat-card"><div class="stat-icon ${color||'blue'}"><i class="fas fa-${icon}"></i></div><div class="stat-val">${value}</div><div class="stat-lab">${label}</div></div>`;
+}
+
+function makeTable(headers,rows){
+  let h='<table class="em-table"><thead><tr>';
+  headers.forEach(col=>h+=`<th>${col}</th>`);
+  h+='</tr></thead><tbody>';
+  if(!rows||rows.length===0){h+=`<tr><td colspan="${headers.length}" class="empty-state">No records yet.</td></tr>`;}
+  else rows.forEach(r=>h+=`<tr>${r}</tr>`);
+  h+='</tbody></table>';
+  return h;
+}
+
+/* ─── AUTH ─── */
+async function login(){
+  const email=$('login-email').value, pw=$('login-password').value;
+  $('auth-error').textContent='';
+  const{data,error}=await sb.auth.signInWithPassword({password:pw,email});
+  if(error){$('auth-error').textContent=error.message;return;}
+  onAuth(data.user);
+}
+
+async function logout(){
+  await sb.auth.signOut();
+  currentUser=null;
+  hide($('app'));show($('auth-screen'));
+  $('auth-user').classList.add('hidden');$('auth-login').classList.remove('hidden');
+}
+
+function onAuth(user){
+  currentUser=user;
+  hide($('auth-screen'));hide($('splash'));show($('app'));
+  $('display-user-name').textContent=user.email.split('@')[0];
+  $('auth-user-text').textContent='Signed in as '+user.email;
+  switchView('dashboard');
+}
+
+/* ─── SIDEBAR NAV ─── */
+function switchView(id){
+  activeView=id;
+  document.querySelectorAll('.view').forEach(v=>v.classList.add('hidden'));
+  const v=$('view-'+id);if(v)v.classList.remove('hidden');
+  document.querySelectorAll('.nav-item').forEach(n=>{
+    n.classList.toggle('active',n.dataset.view===id);
+  });
+  loadView(id);
+  closeMobileMenu();
+}
+
+function toggleMobileMenu(){
+  $('sidebar').classList.toggle('mobile-open');
+  $('sidebar').previousElementSibling.classList.toggle('active');
+}
+function closeMobileMenu(){
+  $('sidebar').classList.remove('mobile-open');
+  const o=$('sidebar').previousElementSibling;
+  if(o)o.classList.remove('active');
+}
+
+/* ─── DATA LOADING ─── */
+async function loadView(id){
+  switch(id){
+    case'dashboard':await loadDashboard();break;
+    case'charting':await loadPatients();await loadVisits();break;
+    case'telemedicine':await loadConsultations();break;
+    case'referrals':await loadReferrals();break;
+    case'wellbeing':await loadWellbeing();break;
+    case'roster':await loadShifts();break;
+    case'risk':await loadCases();break;
+    case'practice':await loadAppointments();await loadKPIs();break;
+    case'finance':await loadTransactions();await loadLoans();break;
+    case'claims':await loadClaims();break;
+    case'scribe':await loadScribeJobs();break;
+    case'documents':await loadDocPatients();break;
+  }
+}
+
+async function query(table,opts={}){
+  let q=sb.from(table).select(opts.select||'*');
+  if(opts.order)q=q.order(opts.order.col,{ascending:opts.order.asc||false});
+  if(opts.filter)q=q.eq(opts.filter.col,opts.filter.val);
+  if(opts.limit)q=q.limit(opts.limit);
+  return q;
+}
+
+/* ─── DASHBOARD ─── */
+async function loadDashboard(){
+  const[appts,kpis,wellbeing,claims,referrals]=await Promise.all([
+    sb.from('appointments').select('status,appt_at,patient_name'),
+    sb.from('practice_kpis').select('revenue,expense,patient_count'),
+    sb.from('wellbeing_checkins').select('mood,stress,burnout_risk'),
+    sb.from('claims').select('status,amount'),
+    sb.from('referrals').select('status,urgency')
+  ]);
+  const ad=appts.data||[],kd=kpis.data||[],wd=wellbeing.data||[],cd=claims.data||[],rd=referrals.data||[];
+  const booked=ad.filter(r=>r.status==='booked'||r.status==='confirmed').length;
+  const totalRev=kd.reduce((s,r)=>s+r.revenue,0);
+  const urgent=rd.filter(r=>r.urgency==='urgent').length;
+  const highRisk=wd.filter(r=>r.burnout_risk==='high').length;
+
+  $('dashboard-stats').innerHTML=
+    stat('calendar-check','Upcoming',booked,'blue')+
+    stat('naira','Revenue',fmtMoney(totalRev),'green')+
+    stat('users','Patients',kd.reduce((s,r)=>s+r.patient_count,0),'blue')+
+    stat('triangle-exclamation','Urgent Referrals',urgent,'red')+
+    stat('brain','High Burnout Risk',highRisk,'amber');
+
+  const rows=ad.filter(r=>r.status==='booked'||r.status==='confirmed').slice(0,5);
+  if(rows.length===0){
+    $('dashboard-appointments').innerHTML='<div class="empty-state">No upcoming appointments.</div>';
+  }else{
+    $('dashboard-appointments').innerHTML=makeTable(['Patient','When','Status'],
+      rows.map(r=>`<td><strong>${r.patient_name}</strong></td><td>${fmtDateTime(r.appt_at)}</td><td>${tag(r.status)}</td>`));
+  }
+}
+
+/* ─── PATIENTS ─── */
+async function loadPatients(){
+  const{data}=await sb.from('patients').select('*').order('created_at',{ascending:false});
+  $('patients-count').textContent=(data||[]).length;
+  $('patients-table-wrap').innerHTML=makeTable(['Name','DOB','Sex','Allergies','Actions'],
+    (data||[]).map(r=>`<td><strong>${r.name}</strong></td><td>${fmtDate(r.dob)}</td><td>${r.sex||'—'}</td><td>${r.allergies||'—'}</td>
+    <td class="row-actions"><button class="btn btn-sm btn-danger" onclick="deleteRow('patients','${r.id}')"><i class="fas fa-trash"></i></button></td>`));
+}
+
+/* ─── VISITS ─── */
+async function loadVisits(){
+  const{data}=await sb.from('visits').select('*').order('created_at',{ascending:false});
+  $('visits-count').textContent=(data||[]).length;
+  $('visits-table-wrap').innerHTML=makeTable(['Date','Complaint','S','O','A','P','Actions'],
+    (data||[]).map(r=>`<td>${fmtDate(r.visit_date)}</td><td>${r.chief_complaint||'—'}</td>
+    <td title="${r.subjective||''}">${(r.subjective||'—').substring(0,40)}</td>
+    <td title="${r.objective||''}">${(r.objective||'—').substring(0,40)}</td>
+    <td title="${r.assessment||''}">${(r.assessment||'—').substring(0,40)}</td>
+    <td title="${r.plan||''}">${(r.plan||'—').substring(0,40)}</td>
+    <td class="row-actions"><button class="btn btn-sm btn-danger" onclick="deleteRow('visits','${r.id}')"><i class="fas fa-trash"></i></button></td>`));
+}
+
+/* ─── CONSULTATIONS ─── */
+async function loadConsultations(){
+  const{data}=await sb.from('consultations').select('*').order('created_at',{ascending:false});
+  const scheduled=(data||[]).filter(r=>r.status==='scheduled').length;
+  const completed=(data||[]).filter(r=>r.status==='completed').length;
+  $('tele-stats').innerHTML=stat('video','Total',(data||[]).length,'blue')+stat('clock','Scheduled',scheduled,'amber')+stat('check-circle','Completed',completed,'green');
+  $('consultations-table-wrap').innerHTML=makeTable(['Patient','When','Duration','Status','Actions'],
+    (data||[]).map(r=>`<td><strong>${r.patient_name}</strong></td><td>${fmtDateTime(r.scheduled_at)}</td><td>${r.duration_min}min</td><td>${tag(r.status)}</td>
+    <td class="row-actions"><button class="btn btn-sm btn-danger" onclick="deleteRow('consultations','${r.id}')"><i class="fas fa-trash"></i></button></td>`));
+}
+
+/* ─── REFERRALS ─── */
+async function loadReferrals(){
+  const{data}=await sb.from('referrals').select('*').order('created_at',{ascending:false});
+  const urgent=(data||[]).filter(r=>r.urgency==='urgent').length;
+  const matched=(data||[]).filter(r=>r.status==='matched'||r.status==='accepted').length;
+  $('referral-stats').innerHTML=stat('arrow-right-arrow-left','Total',(data||[]).length,'blue')+stat('bolt','Urgent',urgent,'red')+stat('check','Matched',matched,'green')+stat('clock','New',(data||[]).filter(r=>r.status==='new').length,'amber');
+  $('referrals-table-wrap').innerHTML=makeTable(['Patient','Source','Urgency','Specialty','Status','Actions'],
+    (data||[]).map(r=>`<td><strong>${r.patient_name}</strong></td><td>${(r.source||'—').replace(/_/g,' ')}</td><td>${tag(r.urgency)}</td><td>${r.required_specialty||'—'}</td><td>${tag(r.status)}</td>
+    <td class="row-actions"><button class="btn btn-sm btn-danger" onclick="deleteRow('referrals','${r.id}')"><i class="fas fa-trash"></i></button></td>`));
+}
+
+/* ─── WELLBEING ─── */
+async function loadWellbeing(){
+  const{data}=await sb.from('wellbeing_checkins').select('*').order('created_at',{ascending:false});
+  const n=(data||[]).length;
+  const avgMood=n?(data.reduce((s,r)=>s+r.mood,0)/n).toFixed(1):'0';
+  const avgStress=n?(data.reduce((s,r)=>s+r.stress,0)/n).toFixed(1):'0';
+  const highRisk=(data||[]).filter(r=>r.burnout_risk==='high').length;
+  $('wellbeing-stats').innerHTML=stat('brain','Check-ins',n,'blue')+stat('face-smile','Avg Mood',avgMood,'green')+stat('bolt','Avg Stress',avgStress,'red')+stat('triangle-exclamation','High Risk',highRisk,'amber');
+  $('wellbeing-table-wrap').innerHTML=makeTable(['Date','Mood','Energy','Stress','Sleep','Risk','Notes','Actions'],
+    (data||[]).map(r=>`<td>${fmtDate(r.checkin_date)}</td><td>${r.mood}/5</td><td>${r.energy}/5</td><td>${r.stress}/5</td><td>${r.sleep_hours?r.sleep_hours+'h':'—'}</td><td>${tag(r.burnout_risk)}</td>
+    <td title="${r.notes||''}">${(r.notes||'—').substring(0,30)}</td>
+    <td class="row-actions"><button class="btn btn-sm btn-danger" onclick="deleteRow('wellbeing_checkins','${r.id}')"><i class="fas fa-trash"></i></button></td>`));
+}
+
+/* ─── SHIFTS ─── */
+async function loadShifts(){
+  const{data}=await sb.from('shifts').select('*').order('created_at',{ascending:false});
+  const confirmed=(data||[]).filter(r=>r.status==='confirmed').length;
+  const locums=(data||[]).filter(r=>r.is_locum).length;
+  const needsCover=(data||[]).filter(r=>r.status==='needs_cover').length;
+  $('roster-stats').innerHTML=stat('calendar-days','Total',(data||[]).length,'blue')+stat('check-circle','Confirmed',confirmed,'green')+stat('users','Locums',locums,'amber')+stat('triangle-exclamation','Needs Cover',needsCover,'red');
+  $('shifts-table-wrap').innerHTML=makeTable(['Title','Start','End','Location','Status','Locum','Actions'],
+    (data||[]).map(r=>`<td><strong>${r.title}</strong></td><td>${fmtDateTime(r.start_at)}</td><td>${fmtDateTime(r.end_at)}</td><td>${r.location||'—'}</td><td>${tag(r.status)}</td><td>${r.is_locum?'Yes':'No'}</td>
+    <td class="row-actions"><button class="btn btn-sm btn-danger" onclick="deleteRow('shifts','${r.id}')"><i class="fas fa-trash"></i></button></td>`));
+}
+
+/* ─── LEGAL CASES ─── */
+async function loadCases(){
+  const{data}=await sb.from('legal_cases').select('*').order('created_at',{ascending:false});
+  const open=(data||[]).filter(r=>r.status==='open'||r.status==='preparing').length;
+  const active=(data||[]).filter(r=>r.status==='active_litigation').length;
+  $('risk-stats').innerHTML=stat('shield-halved','Total',(data||[]).length,'blue')+stat('folder-open','Open',open,'amber')+stat('gavel','Active Litigation',active,'red');
+  $('cases-table-wrap').innerHTML=makeTable(['Title','Type','Status','Attorney','Insurer','Actions'],
+    (data||[]).map(r=>`<td><strong>${r.title}</strong></td><td>${(r.case_type||'—').replace(/_/g,' ')}</td><td>${tag(r.status)}</td><td>${r.attorney||'—'}</td><td>${r.insurer||'—'}</td>
+    <td class="row-actions"><button class="btn btn-sm btn-danger" onclick="deleteRow('legal_cases','${r.id}')"><i class="fas fa-trash"></i></button></td>`));
+}
+
+/* ─── APPOINTMENTS ─── */
+async function loadAppointments(){
+  const{data}=await sb.from('appointments').select('*').order('created_at',{ascending:false});
+  $('appt-count').textContent=(data||[]).length;
+  const booked=(data||[]).filter(r=>r.status==='booked'||r.status==='confirmed').length;
+  const totalRev=(await sb.from('practice_kpis').select('revenue')).data?.reduce((s,r)=>s+r.revenue,0)||0;
+  $('practice-stats').innerHTML=stat('calendar-check','Upcoming',booked,'blue')+stat('naira','Revenue',fmtMoney(totalRev),'green')+stat('user-clock','Total',(data||[]).length,'blue');
+  $('appointments-table-wrap').innerHTML=makeTable(['Patient','When','Duration','Reason','Status','Actions'],
+    (data||[]).map(r=>`<td><strong>${r.patient_name}</strong></td><td>${fmtDateTime(r.appt_at)}</td><td>${r.duration_min}min</td><td>${r.reason||'—'}</td><td>${tag(r.status)}</td>
+    <td class="row-actions"><button class="btn btn-sm btn-danger" onclick="deleteRow('appointments','${r.id}')"><i class="fas fa-trash"></i></button></td>`));
+}
+
+/* ─── KPIs ─── */
+async function loadKPIs(){
+  const{data}=await sb.from('practice_kpis').select('*').order('created_at',{ascending:false});
+  $('kpi-count').textContent=(data||[]).length;
+  $('kpis-table-wrap').innerHTML=makeTable(['Month','Patients','Revenue','Expenses','No-Show %','Actions'],
+    (data||[]).map(r=>`<td>${fmtDate(r.month)}</td><td>${r.patient_count}</td><td>${fmtMoney(r.revenue)}</td><td>${fmtMoney(r.expense)}</td><td>${r.no_show_rate||0}%</td>
+    <td class="row-actions"><button class="btn btn-sm btn-danger" onclick="deleteRow('practice_kpis','${r.id}')"><i class="fas fa-trash"></i></button></td>`));
+}
+
+/* ─── TRANSACTIONS ─── */
+async function loadTransactions(){
+  const{data}=await sb.from('transactions').select('*').order('created_at',{ascending:false});
+  $('txn-count').textContent=(data||[]).length;
+  const income=(data||[]).filter(r=>r.txn_type==='income').reduce((s,r)=>s+r.amount,0);
+  const expense=(data||[]).filter(r=>r.txn_type==='expense').reduce((s,r)=>s+r.amount,0);
+  const totalDebt=(await sb.from('loans').select('balance')).data?.reduce((s,r)=>s+r.balance,0)||0;
+  $('finance-stats').innerHTML=stat('arrow-down','Income',fmtMoney(income),'green')+stat('arrow-up','Expenses',fmtMoney(expense),'red')+stat('scale-balanced','Net',fmtMoney(income-expense),'blue')+stat('landmark','Total Debt',fmtMoney(totalDebt),'amber');
+  $('transactions-table-wrap').innerHTML=makeTable(['Type','Amount','Category','Description','Date','Actions'],
+    (data||[]).map(r=>`<td>${tag(r.txn_type)}</td><td><strong>${fmtMoney(r.amount)}</strong></td><td>${r.category||'—'}</td><td>${r.description||'—'}</td><td>${fmtDate(r.txn_date)}</td>
+    <td class="row-actions"><button class="btn btn-sm btn-danger" onclick="deleteRow('transactions','${r.id}')"><i class="fas fa-trash"></i></button></td>`));
+}
+
+/* ─── LOANS ─── */
+async function loadLoans(){
+  const{data}=await sb.from('loans').select('*').order('created_at',{ascending:false});
+  $('loan-count').textContent=(data||[]).length;
+  $('loans-table-wrap').innerHTML=makeTable(['Lender','Type','Principal','Balance','Rate','Monthly','Status','Actions'],
+    (data||[]).map(r=>`<td><strong>${r.lender}</strong></td><td>${(r.loan_type||'—').replace(/_/g,' ')}</td><td>${fmtMoney(r.principal)}</td><td>${fmtMoney(r.balance)}</td><td>${r.interest_rate||0}%</td><td>${fmtMoney(r.monthly_payment)}/mo</td><td>${tag(r.status)}</td>
+    <td class="row-actions"><button class="btn btn-sm btn-danger" onclick="deleteRow('loans','${r.id}')"><i class="fas fa-trash"></i></button></td>`));
+}
+
+/* ─── CLAIMS ─── */
+async function loadClaims(){
+  const{data}=await sb.from('claims').select('*').order('created_at',{ascending:false});
+  const total=(data||[]).reduce((s,r)=>s+r.amount,0);
+  const approved=(data||[]).filter(r=>r.status==='approved'||r.status==='paid').reduce((s,r)=>s+r.amount,0);
+  const denied=(data||[]).filter(r=>r.status==='denied').length;
+  $('claims-stats').innerHTML=stat('file-invoice-dollar','Total',(data||[]).length,'blue')+stat('naira','Value',fmtMoney(total),'blue')+stat('check-circle','Approved',fmtMoney(approved),'green')+stat('xmark','Denied',denied,'red');
+  $('claims-table-wrap').innerHTML=makeTable(['Patient','Amount','Insurer','Code','Status','Date','Actions'],
+    (data||[]).map(r=>`<td><strong>${r.patient_name}</strong></td><td>${fmtMoney(r.amount)}</td><td>${r.insurer||'—'}</td><td>${r.code||'—'}</td><td>${tag(r.status)}</td><td>${fmtDate(r.service_date)}</td>
+    <td class="row-actions"><button class="btn btn-sm btn-danger" onclick="deleteRow('claims','${r.id}')"><i class="fas fa-trash"></i></button></td>`));
+}
+
+/* ─── SCRIBE JOBS ─── */
+async function loadScribeJobs(){
+  const{data}=await sb.from('scribe_jobs').select('*').order('created_at',{ascending:false});
+  $('scribe-count').textContent=(data||[]).length;
+  $('scribe-table-wrap').innerHTML=makeTable(['Status','Transcript','Note','Duration','Actions'],
+    (data||[]).map(r=>`<td>${tag(r.status)}</td>
+    <td title="${r.transcript||''}">${(r.transcript||'—').substring(0,60)}</td>
+    <td title="${r.note||''}">${(r.note||'—').substring(0,60)}</td>
+    <td>${r.duration_min?r.duration_min+'min':'—'}</td>
+    <td class="row-actions"><button class="btn btn-sm btn-danger" onclick="deleteRow('scribe_jobs','${r.id}')"><i class="fas fa-trash"></i></button></td>`));
+}
+
+/* ─── AI SCRIBE ─── */
+async function runAiScribe(){
+  const btn=$('scribe-btn');
+  const transcript=$('scribe-input').value.trim();
+  if(!transcript){toast('Enter consultation notes first',true);return;}
+  btn.disabled=true;btn.innerHTML='<i class="fas fa-spinner fa-spin"></i> Generating...';
+  try{
+    const token=(await sb.auth.getSession()).data.session?.access_token;
+    const resp=await fetch(SUPABASE_URL+'/functions/v1/ai-scribe',{
+      method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token,'apikey':SUPABASE_ANON},
+      body:JSON.stringify({transcript,patient_name:$('scribe-patient').value||undefined})
+    });
+    const data=await resp.json();
+    if(data.error){toast('Error: '+data.error,true);return;}
+    const note=data.note||'';
+    let html='';
+    const sections=note.split(/\n\n/);
+    sections.forEach(s=>{
+      const lines=s.split('\n');
+      const header=lines[0];
+      if(/^(SUBJECTIVE|OBJECTIVE|ASSESSMENT|PLAN)$/i.test(header.trim())){
+        html+=`<h4>${header.trim()}</h4><p>${lines.slice(1).join('\n')}</p>`;
+      }else{
+        html+=`<p>${s}</p>`;
+      }
+    });
+    $('scribe-output').innerHTML=html||note;
+    show($('scribe-actions'));
+    toast('SOAP note generated');
+    await loadScribeJobs();
+  }catch(e){toast('Request failed: '+e.message,true);}
+  finally{btn.disabled=false;btn.innerHTML='<i class="fas fa-wand-sparkles"></i> Generate SOAP Note';}
+}
+
+function copyScribeNote(){
+  const text=$('scribe-output').innerText;
+  navigator.clipboard.writeText(text).then(()=>toast('Copied'));
+}
+
+function saveScribeToVisit(){
+  const text=$('scribe-output').innerText;
+  switchView('charting');
+  openModal('visits');
+}
+
+/* ─── DOCUMENT GENERATOR ─── */
+async function loadDocPatients(){
+  const{data}=await sb.from('patients').select('id,name').order('name');
+  const sel=$('doc-patient');
+  sel.innerHTML='<option value="">Select a patient...</option>';
+  (data||[]).forEach(r=>{const o=document.createElement('option');o.value=r.id;o.textContent=r.name;sel.appendChild(o);});
+}
+
+function toggleDocFields(){
+  const type=$('doc-type').value;
+  if(type==='prescription')show($('prescription-fields'));else hide($('prescription-fields'));
+  if(type==='clinical_note'||type==='sick_note'||type==='referral')show($('soap-fields'));else hide($('soap-fields'));
+}
+
+function addMedRow(){
+  const row=document.createElement('div');row.className='med-row';
+  row.innerHTML=`<input class="med-name" placeholder="Medication"><input class="med-dose" placeholder="Dose"><input class="med-freq" placeholder="Frequency"><input class="med-qty" placeholder="Qty"><button class="btn btn-sm btn-danger" onclick="this.closest('.med-row').remove()"><i class="fas fa-times"></i></button>`;
+  $('med-list').appendChild(row);
+}
+
+function generateDocument(){
+  const type=$('doc-type').value;
+  const patient=$('doc-patient');
+  const patientName=patient.options[patient.selectedIndex]?.text||'Patient';
+  const context=$('doc-context').value;
+  const now=new Date().toLocaleDateString('en-ZA');
+
+  let title='Clinical Note';
+  let body='';
+
+  if(type==='sick_note'){
+    title='Medical Certificate / Sick Note';
+    body=`Patient: ${patientName}\nDate: ${now}\n\nDiagnosis: ${context}\n\nThis certifies that the above-named patient is medically unfit to attend work/duty from the date of this consultation.\n\nPlease contact the practice for any further information.`;
+  }else if(type==='prescription'){
+    title='Prescription';
+    const meds=[];
+    document.querySelectorAll('.med-row').forEach(r=>{
+      const n=r.querySelector('.med-name').value;
+      const d=r.querySelector('.med-dose').value;
+      const f=r.querySelector('.med-freq').value;
+      const q=r.querySelector('.med-qty').value;
+      if(n)meds.push(`${n} — ${d} ${f} (${q}x)`);
+    });
+    body=`Patient: ${patientName}\nDate: ${now}\n\n${context?context+'\n\n':''}Medications:\n${meds.length?meds.map(m=>'  • '+m).join('\n'):'  (No medications specified)'}`;
+  }else if(type==='referral'){
+    title='Referral Letter';
+    body=`Patient: ${patientName}\nDate: ${now}\n\nClinical Summary:\n${context}\n\nI am referring the above patient for specialist assessment and management. Please find the relevant clinical details above.\n\nThank you for your attention to this matter.`;
+  }else{
+    title='Clinical Note';
+    const s=$('doc-soap-s').value;
+    const o=$('doc-soap-o').value;
+    const a=$('doc-soap-a').value;
+    const p=$('doc-soap-p').value;
+    body=`Patient: ${patientName}\nDate: ${now}\n\n`;
+    if(s)body+=`SUBJECTIVE:\n${s}\n\n`;
+    if(o)body+=`OBJECTIVE:\n${o}\n\n`;
+    if(a)body+=`ASSESSMENT:\n${a}\n\n`;
+    if(p)body+=`PLAN:\n${p}\n\n`;
+    if(context)body+=`Additional Context:\n${context}`;
+  }
+
+  $('doc-preview').innerHTML=`
+    <div class="doc-header">
+      <div class="doc-logo">
+        <div class="doc-logo-box">LV</div>
+        <div class="doc-logo-text"><h2>Leviathan</h2><p>All-in-One Doctor Platform</p></div>
+      </div>
+      <div style="text-align:right;font-size:0.85rem;color:var(--text-muted)">
+        <strong style="color:var(--text)">${currentUser?.email||'Doctor'}</strong><br>
+        <span>Verified Provider</span>
+      </div>
+    </div>
+    <div style="text-align:center;margin-bottom:1.5rem"><h3 style="text-decoration:underline;text-transform:uppercase;font-size:1rem">${title}</h3></div>
+    <div class="doc-body">${body.replace(/\n/g,'<br>')}</div>
+    <div class="doc-footer">
+      <div><strong>Date:</strong> ${now}</div>
+      <div style="text-align:center"><div style="border-bottom:1px solid #333;min-height:2rem;margin-bottom:0.25rem;padding:0 1rem"></div><div style="font-size:0.8rem;font-weight:600">${currentUser?.email||'Doctor'}</div><div style="font-size:0.7rem;color:#999">Electronically Signed</div></div>
+    </div>`;
+
+  hide($('doc-preview-placeholder'));show($('doc-preview'));show($('doc-preview-actions'));
+  toast('Document generated');
+}
+
+function copyDocumentText(){
+  navigator.clipboard.writeText($('doc-preview').innerText).then(()=>toast('Copied'));
+}
+
+function downloadDocumentPDF(){
+  const el=$('doc-preview');
+  html2pdf().set({margin:1,filename:'leviathan-document.pdf',html2canvas:{scale:2},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'}}).from(el).save();
+}
+
+/* ─── SEARCH ─── */
+let searchTimeout;
+function handleSearch(val){
+  clearTimeout(searchTimeout);
+  if(!val||val.length<2)return;
+  searchTimeout=setTimeout(async()=>{
+    const q=val.toLowerCase();
+    const results=[];
+    const searches=[
+      {table:'patients',fields:['name','allergies','conditions'],view:'charting',label:'Patients'},
+      {table:'visits',fields:['chief_complaint','subjective','assessment'],view:'charting',label:'Visits'},
+      {table:'claims',fields:['patient_name','insurer','code'],view:'claims',label:'Claims'},
+      {table:'referrals',fields:['patient_name','required_specialty'],view:'referrals',label:'Referrals'},
+      {table:'appointments',fields:['patient_name','reason'],view:'practice',label:'Appointments'},
+    ];
+    for(const s of searches){
+      const{data}=await sb.from(s.table).select('*').limit(5);
+      (data||[]).forEach(r=>{
+        const match=s.fields.some(f=>(r[f]||'').toLowerCase().includes(q));
+        if(match)results.push({view:s.view,label:s.label,name:r.name||r.patient_name||r.title||'—',data:r});
+      });
+    }
+    if(results.length>0){
+      switchView(results[0].view);
+      toast(`Found ${results.length} result(s)`);
+    }
+  },400);
+}
+
+/* ─── DELETE ─── */
+async function deleteRow(table,id){
+  if(!confirm('Delete this record?'))return;
+  const{error}=await sb.from(table).delete().eq('id',id);
+  if(error){toast('Delete failed: '+error.message,true);return;}
+  toast('Deleted');
+  loadView(activeView);
+}
+
+/* ─── MODAL / CRUD ─── */
 const MODULES={
   wellbeing:{table:'wellbeing_checkins',title:'Wellbeing Check-in',fields:[
     {name:'mood',label:'Mood (1-5)',type:'number',min:1,max:5,required:true},
@@ -113,14 +555,6 @@ const MODULES={
     {name:'expense',label:'Expense',type:'number',min:0},
     {name:'no_show_rate',label:'No-Show Rate %',type:'number',min:0,max:100}
   ]},
-  scribe_jobs:{table:'scribe_jobs',title:'AI Scribe Job',fields:[
-    {name:'status',label:'Status',type:'select',options:['queued','transcribing','generating','ready','failed']},
-    {name:'audio_path',label:'Audio Path',type:'text'},
-    {name:'transcript',label:'Transcript',type:'textarea'},
-    {name:'note',label:'Generated Note',type:'textarea'},
-    {name:'duration_min',label:'Duration (min)',type:'number',min:0},
-    {name:'error',label:'Error',type:'textarea'}
-  ]},
   referrals:{table:'referrals',title:'Referral',fields:[
     {name:'patient_name',label:'Patient Name',type:'text',required:true},
     {name:'source',label:'Source',type:'select',options:['public_waitlist','gp','emergency','other']},
@@ -132,344 +566,38 @@ const MODULES={
   ]}
 };
 
-function toast(msg,isError){
-  const t=document.getElementById('toast');
-  t.textContent=msg;
-  t.className='toast'+(isError?' error':'')+' show';
-  setTimeout(()=>t.className='toast',3000);
-}
-
-async function login(){
-  const email=document.getElementById('login-email').value;
-  const pw=document.getElementById('login-password').value;
-  document.getElementById('auth-error').textContent='';
-  const{data,error}=await sb.auth.signInWithPassword({password:pw,email});
-  if(error){document.getElementById('auth-error').textContent=error.message;return;}
-  onAuth(data.user);
-}
-
-async function logout(){
-  await sb.auth.signOut();
-  currentUser=null;
-  document.getElementById('auth-screen').style.display='flex';
-  document.getElementById('app').style.display='none';
-  document.getElementById('auth-user').style.display='none';
-  document.getElementById('auth-login').style.display='block';
-}
-
-function onAuth(user){
-  currentUser=user;
-  document.getElementById('auth-screen').style.display='none';
-  document.getElementById('app').style.display='block';
-  document.getElementById('user-email').textContent=user.email;
-  document.getElementById('auth-user').style.display='block';
-  document.getElementById('auth-login').style.display='none';
-  document.getElementById('auth-user-text').textContent='Signed in as '+user.email;
-  buildNav();
-  switchTab('wellbeing');
-}
-
-function buildNav(){
-  const nav=document.getElementById('nav');
-  nav.innerHTML='';
-  TABS.forEach(t=>{
-    const b=document.createElement('button');
-    b.textContent=t.label;
-    b.onclick=()=>switchTab(t.id);
-    if(t.id===activeTab)b.classList.add('active');
-    nav.appendChild(b);
-  });
-}
-
-function switchTab(id){
-  activeTab=id;
-  document.querySelectorAll('.tab-content').forEach(el=>el.classList.remove('active'));
-  document.getElementById('tab-'+id).classList.add('active');
-  document.querySelectorAll('.nav button').forEach((b,i)=>{
-    b.classList.toggle('active',TABS[i].id===id);
-  });
-  loadTabData(id);
-}
-
-async function loadTabData(id){
-  switch(id){
-    case'wellbeing':await loadList('wellbeing_checkins','wellbeing-list',renderWellbeing);renderWellbeingStats();break;
-    case'claims':await loadList('claims','claims-list',renderClaim);renderClaimsStats();break;
-    case'finance':await loadList('transactions','transactions-list',renderTransaction);await loadList('loans','loans-list',renderLoan);renderFinanceStats();break;
-    case'telemedicine':await loadList('consultations','consultations-list',renderConsult);renderTeleStats();break;
-    case'charting':await loadList('patients','patients-list',renderPatient);await loadList('visits','visits-list',renderVisit);break;
-    case'roster':await loadList('shifts','shifts-list',renderShift);renderRosterStats();break;
-    case'risk':await loadList('legal_cases','cases-list',renderCase);renderRiskStats();break;
-    case'practice':await loadList('appointments','appointments-list',renderAppointment);await loadList('practice_kpis','kpis-list',renderKPI);renderPracticeStats();break;
-    case'scribe':await loadList('scribe_jobs','scribe-list',renderScribe);renderScribeStats();break;
-    case'referrals':await loadList('referrals','referrals-list',renderReferral);renderReferralStats();break;
-  }
-}
-
-async function loadList(table,containerId,renderFn){
-  const{data,error}=await sb.from(table).select('*').order('created_at',{ascending:false});
-  const el=document.getElementById(containerId);
-  if(error){el.innerHTML='<div class="empty-state">Error loading data</div>';return;}
-  if(!data||data.length===0){el.innerHTML='<div class="empty-state">No records yet. Add one above.</div>';return;}
-  el.innerHTML='';
-  data.forEach(row=>el.appendChild(renderFn(row)));
-}
-
-function fmtDate(d){if(!d)return'';return new Date(d).toLocaleDateString();}
-function fmtDateTime(d){if(!d)return'';return new Date(d).toLocaleString();}
-function fmtMoney(n){if(n==null)return'R0';return'R'+Number(n).toLocaleString(undefined,{minimumFractionDigits:0,maximumFractionDigits:2});}
-function tagSpan(status){return`<span class="tag tag-${status}">${status.replace(/_/g,' ')}</span>`;}
-function cardActions(table,id){return`<div class="actions"><button class="btn-danger" onclick="deleteRow('${table}','${id}')">Delete</button></div>`;}
-
-async function deleteRow(table,id){
-  if(!confirm('Delete this record?'))return;
-  const{error}=await sb.from(table).delete().eq('id',id);
-  if(error){toast('Delete failed: '+error.message,true);return;}
-  toast('Deleted');
-  switchTab(activeTab);
-}
-
-function renderWellbeing(r){
-  const d=document.createElement('div');d.className='record-card';
-  d.innerHTML=`<div class="meta">${fmtDate(r.checkin_date)} ${tagSpan(r.burnout_risk)}</div>
-  <div class="meta"><span class="kv">Mood <b>${r.mood}/5</b></span><span class="kv">Energy <b>${r.energy}/5</b></span><span class="kv">Stress <b>${r.stress}/5</b></span>${r.sleep_hours?`<span class="kv">Sleep <b>${r.sleep_hours}h</b></span>`:''}</div>
-  ${r.notes?`<div class="desc">${r.notes}</div>`:''}${cardActions('wellbeing_checkins',r.id)}`;
-  return d;
-}
-
-function renderClaim(r){
-  const d=document.createElement('div');d.className='record-card';
-  d.innerHTML=`<div class="meta">${tagSpan(r.status)}<span class="kv"><b>${r.patient_name}</b></span><span class="kv">${fmtMoney(r.amount)}</span><span class="kv">${r.insurer||''}</span></div>
-  <div class="meta"><span class="kv">Code: <b>${r.code||'N/A'}</b></span><span class="kv">Date: <b>${fmtDate(r.service_date)}</b></span></div>
-  ${r.denial_reason?`<div class="desc" style="color:var(--accent4)">Denial: ${r.denial_reason}</div>`:''}
-  ${r.notes?`<div class="desc">${r.notes}</div>`:''}${cardActions('claims',r.id)}`;
-  return d;
-}
-
-function renderTransaction(r){
-  const d=document.createElement('div');d.className='record-card';
-  d.innerHTML=`<div class="meta">${tagSpan(r.txn_type)}<span class="kv">${fmtMoney(r.amount)}</span><span class="kv"><b>${r.category||''}</b></span><span class="kv">${fmtDate(r.txn_date)}</span></div>
-  ${r.description?`<div class="desc">${r.description}</div>`:''}${cardActions('transactions',r.id)}`;
-  return d;
-}
-
-function renderLoan(r){
-  const d=document.createElement('div');d.className='record-card';
-  d.innerHTML=`<div class="meta">${tagSpan(r.status)}<span class="kv"><b>${r.lender}</b></span><span class="kv">${r.loan_type||''}</span></div>
-  <div class="meta"><span class="kv">Principal <b>${fmtMoney(r.principal)}</b></span><span class="kv">Balance <b>${fmtMoney(r.balance)}</b></span><span class="kv">${r.interest_rate||0}%</span><span class="kv">${fmtMoney(r.monthly_payment)}/mo</span></div>
-  ${cardActions('loans',r.id)}`;
-  return d;
-}
-
-function renderConsult(r){
-  const d=document.createElement('div');d.className='record-card';
-  d.innerHTML=`<div class="meta">${tagSpan(r.status)}<span class="kv"><b>${r.patient_name}</b></span><span class="kv">${fmtDateTime(r.scheduled_at)}</span><span class="kv">${r.duration_min}min</span></div>
-  ${r.notes?`<div class="desc">${r.notes}</div>`:''}${cardActions('consultations',r.id)}`;
-  return d;
-}
-
-function renderPatient(r){
-  const d=document.createElement('div');d.className='record-card';
-  d.innerHTML=`<h4>${r.name}</h4>
-  <div class="meta"><span class="kv">${r.sex||'N/A'}</span><span class="kv">DOB: <b>${fmtDate(r.dob)}</b></span></div>
-  ${r.allergies?`<div class="desc"><b>Allergies:</b> ${r.allergies}</div>`:''}
-  ${r.conditions?`<div class="desc"><b>Conditions:</b> ${r.conditions}</div>`:''}
-  ${r.medications?`<div class="desc"><b>Meds:</b> ${r.medications}</div>`:''}
-  ${cardActions('patients',r.id)}`;
-  return d;
-}
-
-function renderVisit(r){
-  const d=document.createElement('div');d.className='record-card';
-  d.innerHTML=`<div class="meta"><span class="kv"><b>Visit</b></span><span class="kv">${fmtDate(r.visit_date)}</span><span class="kv">${r.chief_complaint||''}</span></div>
-  ${r.subjective?`<div class="desc"><b>S:</b> ${r.subjective}</div>`:''}
-  ${r.objective?`<div class="desc"><b>O:</b> ${r.objective}</div>`:''}
-  ${r.assessment?`<div class="desc"><b>A:</b> ${r.assessment}</div>`:''}
-  ${r.plan?`<div class="desc"><b>P:</b> ${r.plan}</div>`:''}
-  ${cardActions('visits',r.id)}`;
-  return d;
-}
-
-function renderShift(r){
-  const d=document.createElement('div');d.className='record-card';
-  d.innerHTML=`<div class="meta">${tagSpan(r.status)}<span class="kv"><b>${r.title}</b></span>${r.is_locum?`<span class="tag tag-medium">Locum</span>`:''}</div>
-  <div class="meta"><span class="kv">${fmtDateTime(r.start_at)} → ${fmtDateTime(r.end_at)}</span><span class="kv">${r.location||''}</span></div>
-  ${r.notes?`<div class="desc">${r.notes}</div>`:''}${cardActions('shifts',r.id)}`;
-  return d;
-}
-
-function renderCase(r){
-  const d=document.createElement('div');d.className='record-card';
-  d.innerHTML=`<div class="meta">${tagSpan(r.status)}<span class="kv"><b>${r.title}</b></span><span class="kv">${r.case_type||''}</span></div>
-  <div class="meta"><span class="kv">Attorney: <b>${r.attorney||'N/A'}</b></span><span class="kv">Insurer: <b>${r.insurer||'N/A'}</b></span></div>
-  ${r.key_dates?`<div class="desc"><b>Key Dates:</b> ${r.key_dates}</div>`:''}
-  ${r.notes?`<div class="desc">${r.notes}</div>`:''}${cardActions('legal_cases',r.id)}`;
-  return d;
-}
-
-function renderAppointment(r){
-  const d=document.createElement('div');d.className='record-card';
-  d.innerHTML=`<div class="meta">${tagSpan(r.status)}<span class="kv"><b>${r.patient_name}</b></span><span class="kv">${fmtDateTime(r.appt_at)}</span><span class="kv">${r.duration_min}min</span></div>
-  ${r.reason?`<div class="desc">${r.reason}</div>`:''}${r.notes?`<div class="desc">${r.notes}</div>`:''}
-  ${cardActions('appointments',r.id)}`;
-  return d;
-}
-
-function renderKPI(r){
-  const d=document.createElement('div');d.className='record-card';
-  d.innerHTML=`<div class="meta"><span class="kv"><b>${fmtDate(r.month)}</b></span></div>
-  <div class="meta"><span class="kv">Patients <b>${r.patient_count}</b></span><span class="kv">Revenue <b>${fmtMoney(r.revenue)}</b></span><span class="kv">Expenses <b>${fmtMoney(r.expense)}</b></span><span class="kv">No-Show <b>${r.no_show_rate}%</b></span></div>
-  ${cardActions('practice_kpis',r.id)}`;
-  return d;
-}
-
-function renderScribe(r){
-  const d=document.createElement('div');d.className='record-card';
-  d.innerHTML=`<div class="meta">${tagSpan(r.status)}<span class="kv">${fmtDateTime(r.created_at)}</span>${r.duration_min?`<span class="kv">${r.duration_min}min</span>`:''}</div>
-  ${r.transcript?`<div class="desc"><b>Transcript:</b> ${r.transcript.substring(0,200)}${r.transcript.length>200?'...':''}</div>`:''}
-  ${r.note?`<div class="desc"><b>Note:</b> ${r.note.substring(0,200)}${r.note.length>200?'...':''}</div>`:''}
-  ${r.error?`<div class="desc" style="color:var(--accent4)">Error: ${r.error}</div>`:''}
-  ${cardActions('scribe_jobs',r.id)}`;
-  return d;
-}
-
-function renderReferral(r){
-  const d=document.createElement('div');d.className='record-card';
-  d.innerHTML=`<div class="meta">${tagSpan(r.status)}<span class="kv"><b>${r.patient_name}</b></span><span class="kv">${tagSpan(r.urgency)}</span></div>
-  <div class="meta"><span class="kv">Source: <b>${(r.source||'').replace(/_/g,' ')}</b></span><span class="kv">Specialty: <b>${r.required_specialty||'N/A'}</b></span></div>
-  ${r.capacity_match?`<div class="desc"><b>Match:</b> ${r.capacity_match}</div>`:''}
-  ${r.notes?`<div class="desc">${r.notes}</div>`:''}${cardActions('referrals',r.id)}`;
-  return d;
-}
-
-async function renderWellbeingStats(){
-  const{data}=await sb.from('wellbeing_checkins').select('mood,stress,energy,burnout_risk');
-  if(!data)return;
-  const el=document.getElementById('wellbeing-stats');
-  const n=data.length;
-  const avgMood=n?(data.reduce((s,r)=>s+r.mood,0)/n).toFixed(1):'0';
-  const avgStress=n?(data.reduce((s,r)=>s+r.stress,0)/n).toFixed(1):'0';
-  const highRisk=data.filter(r=>r.burnout_risk==='high').length;
-  el.innerHTML=statCard('Total Check-ins',n)+statCard('Avg Mood',avgMood)+statCard('Avg Stress',avgStress,'red')+statCard('High Risk',highRisk,'red');
-}
-async function renderClaimsStats(){
-  const{data}=await sb.from('claims').select('status,amount');
-  if(!data)return;
-  const el=document.getElementById('claims-stats');
-  const total=data.reduce((s,r)=>s+r.amount,0);
-  const approved=data.filter(r=>r.status==='approved'||r.status==='paid').reduce((s,r)=>s+r.amount,0);
-  const denied=data.filter(r=>r.status==='denied').length;
-  el.innerHTML=statCard('Total Claims',data.length)+statCard('Total Value',fmtMoney(total),'blue')+statCard('Approved/Paid',fmtMoney(approved))+statCard('Denied',denied,'red');
-}
-async function renderFinanceStats(){
-  const tx=await sb.from('transactions').select('txn_type,amount');
-  const ln=await sb.from('loans').select('balance');
-  if(!tx.data||!ln.data)return;
-  const el=document.getElementById('finance-stats');
-  const income=tx.data.filter(r=>r.txn_type==='income').reduce((s,r)=>s+r.amount,0);
-  const expense=tx.data.filter(r=>r.txn_type==='expense').reduce((s,r)=>s+r.amount,0);
-  const totalDebt=ln.data.reduce((s,r)=>s+r.balance,0);
-  el.innerHTML=statCard('Income',fmtMoney(income))+statCard('Expenses',fmtMoney(expense),'red')+statCard('Net',fmtMoney(income-expense),'blue')+statCard('Total Debt',fmtMoney(totalDebt),'amber');
-}
-async function renderTeleStats(){
-  const{data}=await sb.from('consultations').select('status,duration_min');
-  if(!data)return;
-  const el=document.getElementById('telemedicine-stats');
-  const scheduled=data.filter(r=>r.status==='scheduled').length;
-  const completed=data.filter(r=>r.status==='completed').length;
-  el.innerHTML=statCard('Total Consults',data.length)+statCard('Scheduled',scheduled,'blue')+statCard('Completed',completed);
-}
-async function renderRosterStats(){
-  const{data}=await sb.from('shifts').select('status,is_locum');
-  if(!data)return;
-  const el=document.getElementById('roster-stats');
-  const confirmed=data.filter(r=>r.status==='confirmed').length;
-  const locums=data.filter(r=>r.is_locum).length;
-  el.innerHTML=statCard('Total Shifts',data.length)+statCard('Confirmed',confirmed)+statCard('Locums',locums,'amber')+statCard('Needs Cover',data.filter(r=>r.status==='needs_cover').length,'red');
-}
-async function renderRiskStats(){
-  const{data}=await sb.from('legal_cases').select('status');
-  if(!data)return;
-  const el=document.getElementById('risk-stats');
-  const open=data.filter(r=>r.status==='open'||r.status==='preparing').length;
-  const active=data.filter(r=>r.status==='active_litigation').length;
-  el.innerHTML=statCard('Total Cases',data.length)+statCard('Open/Preparing',open,'blue')+statCard('Active Litigation',active,'red');
-}
-async function renderPracticeStats(){
-  const ap=await sb.from('appointments').select('status');
-  const kpi=await sb.from('practice_kpis').select('revenue,expense,patient_count');
-  if(!ap.data||!kpi.data)return;
-  const el=document.getElementById('practice-stats');
-  const booked=ap.data.filter(r=>r.status==='booked'||r.status==='confirmed').length;
-  const totalRev=kpi.data.reduce((s,r)=>s+r.revenue,0);
-  const totalPts=kpi.data.reduce((s,r)=>s+r.patient_count,0);
-  el.innerHTML=statCard('Total Appts',ap.data.length)+statCard('Upcoming',booked,'blue')+statCard('Revenue',fmtMoney(totalRev))+statCard('Patients Seen',totalPts);
-}
-async function renderScribeStats(){
-  const{data}=await sb.from('scribe_jobs').select('status');
-  if(!data)return;
-  const el=document.getElementById('scribe-stats');
-  const ready=data.filter(r=>r.status==='ready').length;
-  const failed=data.filter(r=>r.status==='failed').length;
-  el.innerHTML=statCard('Total Jobs',data.length)+statCard('Ready',ready)+statCard('Failed',failed,'red');
-}
-async function renderReferralStats(){
-  const{data}=await sb.from('referrals').select('status,urgency');
-  if(!data)return;
-  const el=document.getElementById('referrals-stats');
-  const urgent=data.filter(r=>r.urgency==='urgent').length;
-  const matched=data.filter(r=>r.status==='matched'||r.status==='accepted').length;
-  el.innerHTML=statCard('Total Referrals',data.length)+statCard('Urgent',urgent,'red')+statCard('Matched',matched,'blue')+statCard('New',data.filter(r=>r.status==='new').length,'amber');
-}
-
-function statCard(label,value,color){
-  return`<div class="stat-card"><div class="stat-label">${label}</div><div class="stat-value${color?' '+color:''}">${value}</div></div>`;
-}
-
 async function openModal(moduleName){
-  const mod=MODULES[moduleName];
-  document.getElementById('modal-title').textContent='New '+mod.title;
-  const form=document.getElementById('modal-form');
-  form.innerHTML='';
+  const mod=MODULES[moduleName];if(!mod)return;
+  $('modal-title').textContent='New '+mod.title;
+  const form=$('modal-form');form.innerHTML='';
 
   for(const f of mod.fields){
-    const wrapper=document.createElement('div');
-    const lbl=document.createElement('label');
-    lbl.textContent=f.label;
-    wrapper.appendChild(lbl);
+    const wrapper=document.createElement('div');wrapper.className='form-group';
+    const lbl=document.createElement('label');lbl.textContent=f.label;wrapper.appendChild(lbl);
 
     if(f.type==='select'&&f.ref){
-      const sel=document.createElement('select');
-      sel.name=f.name;
-      if(!f.required)sel.innerHTML='<option value="">-- None --</option>';
+      const sel=document.createElement('select');sel.name=f.name;
+      if(!f.required){const o0=document.createElement('option');o0.value='';o0.textContent='-- None --';sel.appendChild(o0);}
       const{data}=await sb.from(f.ref).select('id,name').order('name');
       (data||[]).forEach(r=>{const o=document.createElement('option');o.value=r.id;o.textContent=r.name;sel.appendChild(o);});
       wrapper.appendChild(sel);
     }else if(f.type==='select'){
-      const sel=document.createElement('select');
-      sel.name=f.name;
+      const sel=document.createElement('select');sel.name=f.name;
       f.options.forEach(o=>{const opt=document.createElement('option');opt.value=o;opt.textContent=o.replace(/_/g,' ');sel.appendChild(opt);});
       wrapper.appendChild(sel);
     }else if(f.type==='textarea'){
-      const ta=document.createElement('textarea');
-      ta.name=f.name;ta.rows=3;
-      wrapper.appendChild(ta);
+      const ta=document.createElement('textarea');ta.name=f.name;ta.rows=3;wrapper.appendChild(ta);
     }else{
-      const inp=document.createElement('input');
-      inp.type=f.type==='datetime'?'datetime-local':f.type;
-      inp.name=f.name;
-      if(f.min!=null)inp.min=f.min;
-      if(f.max!=null)inp.max=f.max;
-      if(f.value!=null)inp.value=f.value;
-      if(f.required)inp.required=true;
+      const inp=document.createElement('input');inp.type=f.type==='datetime'?'datetime-local':f.type;inp.name=f.name;
+      if(f.min!=null)inp.min=f.min;if(f.max!=null)inp.max=f.max;if(f.value!=null)inp.value=f.value;if(f.required)inp.required=true;
       wrapper.appendChild(inp);
     }
     form.appendChild(wrapper);
   }
 
   const btns=document.createElement('div');btns.className='form-actions';
-  const cancel=document.createElement('button');cancel.type='button';cancel.className='btn-secondary';cancel.textContent='Cancel';cancel.onclick=closeModal;
-  const submit=document.createElement('button');submit.type='submit';submit.className='btn-primary';submit.textContent='Save';
+  const cancel=document.createElement('button');cancel.type='button';cancel.className='btn btn-ghost';cancel.textContent='Cancel';cancel.onclick=closeModal;
+  const submit=document.createElement('button');submit.type='submit';submit.className='btn btn-primary';submit.textContent='Save';
   btns.appendChild(cancel);btns.appendChild(submit);form.appendChild(btns);
 
   form.onsubmit=async(e)=>{
@@ -480,9 +608,7 @@ async function openModal(moduleName){
       let val=fd.get(f.name);
       if(f.name==='is_locum')val=val==='true';
       if(f.type==='number'&&val!=='')val=Number(val);
-      if(f.type==='date'&&val){
-        if(f.name==='month')val=new Date(val+'-01').toISOString().split('T')[0];
-      }
+      if(f.type==='date'&&val&&f.name==='month')val=new Date(val+'-01').toISOString().split('T')[0];
       if(f.type==='datetime'&&val)val=new Date(val).toISOString();
       if((val===null||val==='')&&f.type!=='select'&&f.type!=='textarea')continue;
       row[f.name]=val||'';
@@ -491,16 +617,16 @@ async function openModal(moduleName){
     if(error){toast('Insert failed: '+error.message,true);return;}
     toast(mod.title+' added');
     closeModal();
-    switchTab(activeTab);
+    loadView(activeView);
   };
-  document.getElementById('modal-overlay').classList.add('open');
+  $('modal-overlay').classList.add('open');
 }
 
-function closeModal(){
-  document.getElementById('modal-overlay').classList.remove('open');
-}
+function closeModal(){$('modal-overlay').classList.remove('open');}
 
+/* ─── INIT ─── */
 (async()=>{
   const{data:{session}}=await sb.auth.getSession();
-  if(session&&session.user)onAuth(session.user);
+  if(session&&session.user){onAuth(session.user);}
+  else{$('splash').classList.add('hidden');show($('auth-screen'));}
 })();
