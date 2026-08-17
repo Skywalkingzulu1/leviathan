@@ -82,7 +82,8 @@ function closeMobileMenu(){
 /* ─── DATA LOADING ─── */
 async function loadView(id){
   switch(id){
-    case'dashboard':await loadDashboard();break;
+    case'dashboard':await loadDashboard();await loadApprovalBadge();break;
+    case'approvals':await loadApprovals();break;
     case'charting':await loadPatients();await loadVisits();break;
     case'telemedicine':await loadConsultations();break;
     case'referrals':await loadReferrals();break;
@@ -419,6 +420,84 @@ function copyDocumentText(){
 function downloadDocumentPDF(){
   const el=$('doc-preview');
   html2pdf().set({margin:1,filename:'leviathan-document.pdf',html2canvas:{scale:2},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'}}).from(el).save();
+}
+
+/* ─── APPROVALS / HITL ─── */
+async function loadApprovalBadge(){
+  const{data}=await sb.from('workflow_approvals').select('id').eq('status','pending');
+  const count=(data||[]).length;
+  const badge=$('approval-badge');
+  const pb=$('pending-badge');
+  if(count>0){badge.textContent=count;show(badge);pb.textContent=count;show(pb);}
+  else{hide(badge);hide(pb);}
+}
+
+async function loadApprovals(){
+  const{data:pending}=await sb.from('workflow_approvals').select('*').eq('status','pending').order('created_at',{ascending:false});
+  const{data:resolved}=await sb.from('workflow_approvals').select('*').neq('status','pending').order('reviewed_at',{ascending:false}).limit(10);
+
+  const p=(pending||[]),r=(resolved||[]);
+  $('pending-count').textContent=p.length;
+
+  $('approval-stats').innerHTML=
+    stat('clock','Pending',p.length,'amber')+
+    stat('check-circle','Approved',r.filter(x=>x.status==='approved').length,'green')+
+    stat('xmark','Rejected',r.filter(x=>x.status==='rejected').length,'red')+
+    stat('pen','Overridden',r.filter(x=>x.status==='override').length,'blue');
+
+  if(p.length===0){
+    $('approvals-list').innerHTML='<div class="empty-state"><i class="fas fa-check-circle" style="font-size:2rem;color:var(--accent);opacity:0.3;margin-bottom:0.5rem;display:block"></i>No pending approvals. All workflows clear.</div>';
+  }else{
+    $('approvals-list').innerHTML='';
+    p.forEach(a=>{
+      const card=document.createElement('div');
+      card.className='approval-card priority-'+a.priority;
+      const dataPreview=JSON.stringify(a.proposed_data,null,2);
+      card.innerHTML=`
+        <div class="approval-header">
+          <div>
+            <div class="approval-title">${a.title}</div>
+            <span class="tag tag-${a.priority==='critical'?'high':a.priority}">${a.priority}</span>
+            <span class="tag tag-${a.workflow_type==='triage'?'medium':'submitted'}">${a.workflow_type}</span>
+          </div>
+          <div style="font-size:0.75rem;color:var(--text-muted)">${fmtDateTime(a.created_at)}</div>
+        </div>
+        <div class="approval-desc">${a.description||'No description'}</div>
+        <div class="approval-data">${dataPreview}</div>
+        <div class="approval-actions">
+          <button class="btn btn-primary btn-sm" onclick="resolveApproval('${a.id}','approve')"><i class="fas fa-check"></i> Approve</button>
+          <button class="btn btn-ghost btn-sm" onclick="resolveApproval('${a.id}','override')"><i class="fas fa-pen"></i> Override & Approve</button>
+          <button class="btn btn-danger btn-sm" onclick="resolveApproval('${a.id}','reject')"><i class="fas fa-times"></i> Reject</button>
+        </div>`;
+      $('approvals-list').appendChild(card);
+    });
+  }
+
+  // Audit log
+  const{data:logs}=await sb.from('audit_log').select('*').order('created_at',{ascending:false}).limit(20);
+  $('audit-table-wrap').innerHTML=makeTable(['Time','Actor','Action','Persona','Resource'],
+    (logs||[]).map(l=>`<td>${fmtDateTime(l.created_at)}</td><td>${tag(l.actor_type)}</td><td>${l.action}</td><td>${l.persona||'—'}</td><td>${l.resource_type||'—'}</td>`));
+
+  await loadApprovalBadge();
+}
+
+async function resolveApproval(id,action){
+  let notes=null;
+  if(action==='override'){
+    notes=prompt('Override notes (optional):');
+  }
+  try{
+    const token=(await sb.auth.getSession()).data.session?.access_token;
+    const resp=await fetch(SUPABASE_URL+'/functions/v1/approval-gate',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+token,'apikey':SUPABASE_ANON},
+      body:JSON.stringify({action,approval_id:id,notes})
+    });
+    const data=await resp.json();
+    if(data.error){toast('Error: '+data.error,true);return;}
+    toast(`Approval ${action === 'override' ? 'overridden' : action === 'approve' ? 'approved' : 'rejected'}`);
+    await loadApprovals();
+  }catch(e){toast('Failed: '+e.message,true);}
 }
 
 /* ─── SEARCH ─── */

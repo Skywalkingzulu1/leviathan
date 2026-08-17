@@ -81,6 +81,20 @@ a { color: var(--primary); text-decoration: none; }
 .nav-item:hover { background: var(--primary-light); color: var(--primary); }
 .nav-item.active { background: var(--primary); color: #fff; border-left-color: var(--primary-dark); }
 .nav-item i { width: 18px; text-align: center; font-size: 0.9rem; }
+.nav-badge { margin-left: auto; min-width: 20px; height: 20px; padding: 0 5px; background: var(--primary-light); color: var(--primary); border-radius: 10px; font-size: 0.65rem; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+.nav-badge.alert { background: var(--danger); color: #fff; animation: pulse-badge 2s infinite; }
+.nav-item.active .nav-badge { background: rgba(255,255,255,0.25); color: #fff; }
+@keyframes pulse-badge { 0%,100% { opacity: 1 } 50% { opacity: 0.7 } }
+
+/* Approval Cards */
+.approval-card { border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; margin-bottom: 1rem; background: var(--white); border-left: 4px solid var(--primary); }
+.approval-card.priority-critical { border-left-color: var(--danger); }
+.approval-card.priority-high { border-left-color: var(--warning); }
+.approval-card .approval-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem; }
+.approval-card .approval-title { font-weight: 700; font-size: 0.95rem; }
+.approval-card .approval-desc { color: var(--text-muted); font-size: 0.85rem; margin-bottom: 0.75rem; }
+.approval-card .approval-data { background: var(--bg); border-radius: 8px; padding: 0.75rem; font-size: 0.8rem; font-family: 'SF Mono', monospace; white-space: pre-wrap; max-height: 200px; overflow-y: auto; margin-bottom: 0.75rem; }
+.approval-card .approval-actions { display: flex; gap: 0.5rem; }
 .sidebar-footer { padding: 0.75rem 1rem; border-top: 1px solid var(--border); }
 
 /* MAIN STAGE */

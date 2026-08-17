@@ -4,7 +4,7 @@
 -- ============================================================
 
 -- Demo user in the auth schema
-insert into auth.users (id, instance_id, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, aud, role, created_at, updated_at, confirmation_token, recovery_token, email_change_token_new, email_change, email_change_token_current, phone, phone_change, phone_change_token, reauthentication_token)
+insert into auth.users (id, instance_id, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, aud, role, created_at, updated_at, confirmation_token, recovery_token, email_change_token_new, email_change, is_super_admin)
 values (
   '11111111-1111-1111-1111-111111111111',
   '00000000-0000-0000-0000-000000000000',
@@ -21,24 +21,8 @@ values (
   '',
   '',
   '',
-  '',
-  '',
-  '',
-  '',
-  ''
+  false
 ) on conflict (id) do nothing;
-
-insert into auth.identities (id, provider_id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at)
-values (
-  '11111111-1111-1111-1111-111111111111',
-  'demo@leviathan.health',
-  '11111111-1111-1111-1111-111111111111',
-  '{"sub": "11111111-1111-1111-1111-111111111111", "email": "demo@leviathan.health"}',
-  'email',
-  now(),
-  now(),
-  now()
-) on conflict (provider_id, provider) do nothing;
 
 -- Profile
 insert into public.profiles (id, display_name, specialty, practice_name, region, role)
