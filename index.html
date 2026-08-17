@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Leviathan - All-in-One Doctor Platform</title>
+<link rel="stylesheet" href="styles.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<!-- AUTH SCREEN -->
+<div id="auth-screen" class="auth-screen">
+  <div class="auth-card">
+    <h1 class="auth-logo">Leviathan</h1>
+    <p class="auth-sub">All-in-One Doctor Platform</p>
+    <div id="auth-login">
+      <input type="email" id="login-email" placeholder="Email" value="demo@leviathan.health">
+      <input type="password" id="login-password" placeholder="Password" value="demo-password">
+      <button onclick="login()" class="btn-primary">Sign In</button>
+      <div id="auth-error" class="auth-error"></div>
+    </div>
+    <div id="auth-user" style="display:none">
+      <p class="auth-user-text" id="auth-user-text"></p>
+      <button onclick="logout()" class="btn-secondary">Sign Out</button>
+    </div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app" style="display:none">
+  <div class="header">
+    <div>
+      <h1>Leviathan</h1>
+      <div class="subtitle">All-in-One Doctor Platform</div>
+    </div>
+    <div class="header-right">
+      <span id="user-email" class="user-email"></span>
+      <button onclick="logout()" class="btn-sm">Sign Out</button>
+    </div>
+  </div>
+
+  <div class="nav" id="nav"></div>
+
+  <div class="content">
+    <div class="tab-content active" id="tab-wellbeing">
+      <div class="tab-header">
+        <h2>Wellbeing &amp; Burnout Tracking</h2>
+        <button onclick="openModal('wellbeing')" class="btn-primary btn-add">+ New Check-in</button>
+      </div>
+      <div id="wellbeing-stats" class="stats-grid"></div>
+      <div id="wellbeing-list" class="card-list"></div>
+    </div>
+
+    <div class="tab-content" id="tab-claims">
+      <div class="tab-header">
+        <h2>Billing &amp; Insurance Claims</h2>
+        <button onclick="openModal('claims')" class="btn-primary btn-add">+ New Claim</button>
+      </div>
+      <div id="claims-stats" class="stats-grid"></div>
+      <div id="claims-list" class="card-list"></div>
+    </div>
+
+    <div class="tab-content" id="tab-finance">
+      <div class="tab-header">
+        <h2>Finance &amp; Loans</h2>
+        <div class="tab-header-btns">
+          <button onclick="openModal('transactions')" class="btn-primary btn-add">+ Transaction</button>
+          <button onclick="openModal('loans')" class="btn-primary btn-add">+ Loan</button>
+        </div>
+      </div>
+      <div id="finance-stats" class="stats-grid"></div>
+      <div class="finance-split">
+        <div><h3>Transactions</h3><div id="transactions-list" class="card-list"></div></div>
+        <div><h3>Loans</h3><div id="loans-list" class="card-list"></div></div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-telemedicine">
+      <div class="tab-header">
+        <h2>Telemedicine Consultations</h2>
+        <button onclick="openModal('consultations')" class="btn-primary btn-add">+ New Consult</button>
+      </div>
+      <div id="telemedicine-stats" class="stats-grid"></div>
+      <div id="consultations-list" class="card-list"></div>
+    </div>
+
+    <div class="tab-content" id="tab-charting">
+      <div class="tab-header">
+        <h2>Charting / EHR</h2>
+        <div class="tab-header-btns">
+          <button onclick="openModal('patients')" class="btn-primary btn-add">+ Patient</button>
+          <button onclick="openModal('visits')" class="btn-primary btn-add">+ Visit (SOAP)</button>
+        </div>
+      </div>
+      <div class="ehr-split">
+        <div><h3>Patients</h3><div id="patients-list" class="card-list"></div></div>
+        <div><h3>Visits</h3><div id="visits-list" class="card-list"></div></div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-roster">
+      <div class="tab-header">
+        <h2>Roster &amp; Staffing</h2>
+        <button onclick="openModal('shifts')" class="btn-primary btn-add">+ New Shift</button>
+      </div>
+      <div id="roster-stats" class="stats-grid"></div>
+      <div id="shifts-list" class="card-list"></div>
+    </div>
+
+    <div class="tab-content" id="tab-risk">
+      <div class="tab-header">
+        <h2>Risk &amp; Legal Cases</h2>
+        <button onclick="openModal('legal_cases')" class="btn-primary btn-add">+ New Case</button>
+      </div>
+      <div id="risk-stats" class="stats-grid"></div>
+      <div id="cases-list" class="card-list"></div>
+    </div>
+
+    <div class="tab-content" id="tab-practice">
+      <div class="tab-header">
+        <h2>Practice Operations</h2>
+        <div class="tab-header-btns">
+          <button onclick="openModal('appointments')" class="btn-primary btn-add">+ Appointment</button>
+          <button onclick="openModal('practice_kpis')" class="btn-primary btn-add">+ KPI Entry</button>
+        </div>
+      </div>
+      <div id="practice-stats" class="stats-grid"></div>
+      <div class="practice-split">
+        <div><h3>Appointments</h3><div id="appointments-list" class="card-list"></div></div>
+        <div><h3>Monthly KPIs</h3><div id="kpis-list" class="card-list"></div></div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-scribe">
+      <div class="tab-header">
+        <h2>AI Scribe</h2>
+        <button onclick="openModal('scribe_jobs')" class="btn-primary btn-add">+ New Scribe Job</button>
+      </div>
+      <div id="scribe-stats" class="stats-grid"></div>
+      <div id="scribe-list" class="card-list"></div>
+    </div>
+
+    <div class="tab-content" id="tab-referrals">
+      <div class="tab-header">
+        <h2>Overflow &amp; Referrals</h2>
+        <button onclick="openModal('referrals')" class="btn-primary btn-add">+ New Referral</button>
+      </div>
+      <div id="referrals-stats" class="stats-grid"></div>
+      <div id="referrals-list" class="card-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div id="modal-overlay" class="modal-overlay" onclick="closeModal()">
+  <div class="modal-card" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3 id="modal-title"></h3>
+      <button onclick="closeModal()" class="modal-close">&times;</button>
+    </div>
+    <form id="modal-form" class="modal-form"></form>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast" class="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
