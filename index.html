@@ -1,14 +1,18 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Leviathan — Doctor Platform</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-<link rel="stylesheet" href="styles.css">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Leviathan — Ambient Doctor Platform</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@event-calendar/build@5.12.0/dist/event-calendar.min.css">
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@event-calendar/build@5.12.0/dist/event-calendar.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head>
 <body>
 
@@ -17,6 +21,7 @@
   <div class="splash-inner">
     <div class="splash-icon"><i class="fas fa-heart-pulse"></i></div>
     <h2>Leviathan</h2>
+    <p class="splash-sub">Doctors on Wheels — Clinical Copilot</p>
     <div class="splash-dots"><span>.</span><span>.</span><span>.</span></div>
   </div>
 </div>
@@ -27,19 +32,25 @@
     <div class="auth-brand">
       <div class="auth-icon"><i class="fas fa-heart-pulse"></i></div>
       <h1>Leviathan</h1>
-      <p>All-in-One Doctor Platform</p>
+      <p>Doctors on Wheels Clinical Copilot</p>
     </div>
     <div id="auth-login">
       <div class="form-group">
         <label>Email</label>
-        <input type="email" id="login-email" value="demo@leviathan.health" placeholder="doctor@practice.com">
+        <input type="email" id="login-email" placeholder="doctor@practice.com" value="testuser@doctors.health">
       </div>
       <div class="form-group">
         <label>Password</label>
-        <input type="password" id="login-password" value="demo-password" placeholder="Enter password">
+        <input type="password" id="login-password" placeholder="Enter password">
       </div>
       <button onclick="login()" class="btn btn-primary btn-block">Sign In</button>
       <div id="auth-error" class="auth-error"></div>
+      <hr style="margin:1rem 0;border:none;border-top:1px solid var(--border)">
+      <p style="text-align:center;font-size:0.8rem;color:var(--text-muted);margin-bottom:0.75rem">First time? Create an account:</p>
+      <div class="form-group">
+        <input type="text" id="signup-name" placeholder="Full name (e.g. Dr Smith)">
+      </div>
+      <button onclick="signup()" class="btn btn-ghost btn-block">Create Account</button>
     </div>
     <div id="auth-user" class="hidden">
       <p class="auth-signed-in" id="auth-user-text"></p>
@@ -50,388 +61,146 @@
 
 <!-- APP SHELL -->
 <div id="app" class="app-shell hidden">
-  <div class="sidebar-overlay" onclick="closeMobileMenu()"></div>
+  <div id="drawer-overlay" class="drawer-overlay" onclick="ClinicalBrief.close()"></div>
 
-  <!-- SIDEBAR -->
-  <aside class="sidebar" id="sidebar">
-    <div class="sidebar-brand">
-      <i class="fas fa-heart-pulse"></i>
-      <h1>Leviathan</h1>
+  <!-- TAB VIEWS -->
+  <main class="main-content">
+    <!-- SCHEDULE TAB -->
+    <section id="tab-schedule" class="tab-view">
+      <div class="schedule-layout">
+        <div class="calendar-panel">
+          <div id="calendar-container" class="calendar-container"></div>
+        </div>
+        <div class="queue-panel">
+          <div class="queue-header">
+            <h3><i class="fas fa-users"></i> Patient Queue</h3>
+          </div>
+          <div id="patient-queue" class="patient-queue"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- PATIENTS TAB -->
+    <section id="tab-patients" class="tab-view hidden">
+      <div class="tab-header">
+        <h2>Patient Registry</h2>
+        <p class="tab-subtitle">Patient records and management</p>
+      </div>
+      <div class="stats-grid" id="patient-stats"></div>
+      <div class="search-bar"><i class="fas fa-search"></i><input type="text" id="patient-search" placeholder="Search by name or email..." oninput="Patients.search(this.value)"></div>
+      <div class="patients-layout">
+        <div class="patients-list-panel">
+          <div class="clinical-card"><div class="clinical-card-header">All Patients</div><div class="clinical-card-body" style="padding:0"><div id="patient-list"><div class="empty-state">Loading patients...</div></div></div></div>
+        </div>
+        <div class="patients-detail-panel">
+          <div id="patient-detail"><div class="empty-state"><i class="fas fa-user" style="font-size:2rem;opacity:0.2;margin-bottom:0.5rem;display:block"></i>Select a patient to view details</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CLINICAL TAB -->
+    <section id="tab-clinical" class="tab-view hidden">
+      <div class="tab-header">
+        <h2>Clinical Tools</h2>
+        <p class="tab-subtitle">AI-powered clinical decision support — decision-support only, verify before acting</p>
+      </div>
+      <div id="clinical-sub-view"></div>
+      <div id="clinical-tool-grid"></div>
+    </section>
+
+    <!-- CLAIMS TAB -->
+    <section id="tab-claims" class="tab-view hidden">
+      <div class="tab-header">
+        <h2>Claims Management</h2>
+        <p class="tab-subtitle">Medical aid claims, PMB verification, and billing</p>
+      </div>
+      <div class="stats-grid" id="claim-stats"></div>
+      <div class="clinical-card">
+        <div class="clinical-card-header" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>Recent Claims</span>
+        </div>
+        <div class="clinical-card-body" style="padding:0;">
+          <div id="claim-list"><div class="empty-state">Loading claims...</div></div>
+        </div>
+      </div>
+      <div id="claim-detail" class="clinical-card hidden" style="margin-top:1rem;"></div>
+    </section>
+
+    <!-- VERIFICATION & HITL TAB -->
+    <section id="tab-verification" class="tab-view hidden">
+      <div class="tab-header">
+        <h2>Verification & HITL</h2>
+        <p class="tab-subtitle">Human-in-the-loop approvals and insurance verification</p>
+      </div>
+      <div class="stats-grid" id="hitl-stats"></div>
+      <div class="hitl-layout">
+        <div class="hitl-pending-panel">
+          <div class="card">
+            <div class="card-header">Pending Approvals</div>
+            <div class="card-body" id="hitl-pending"></div>
+          </div>
+        </div>
+        <div class="hitl-resolved-panel">
+          <div class="card">
+            <div class="card-header">Resolved</div>
+            <div class="card-body table-wrap" id="hitl-resolved"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ANALYTICS TAB -->
+    <section id="tab-analytics" class="tab-view hidden">
+      <div class="tab-header">
+        <h2>Analytics Dashboard</h2>
+        <p class="tab-subtitle">Revenue, claims, and clinical metrics</p>
+      </div>
+      <div class="stats-grid" id="analytics-stats"></div>
+      <div class="charts-grid" id="analytics-charts"></div>
+    </section>
+
+    <!-- OPERATIONS TAB -->
+    <section id="tab-operations" class="tab-view hidden">
+      <div class="tab-header">
+        <h2>Operations</h2>
+        <p class="tab-subtitle">System health, agents, and configuration</p>
+      </div>
+      <div class="operations-grid">
+        <div id="operations-health"></div>
+        <div id="operations-agents"></div>
+        <div id="operations-info"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- CLINICAL BRIEF DRAWER -->
+  <aside id="clinical-drawer" class="clinical-drawer">
+    <div class="drawer-header">
+      <h3><i class="fas fa-clipboard-list"></i> Clinical Brief</h3>
+      <button class="btn-close" onclick="ClinicalBrief.close()">&times;</button>
     </div>
-    <nav class="nav-section">
-      <div class="nav-label">Clinical</div>
-      <div class="nav-item active" data-view="dashboard" onclick="switchView('dashboard')">
-        <i class="fas fa-laptop-medical"></i> Clinical Hub
-        <span class="nav-badge" id="pending-badge" style="display:none">0</span>
-      </div>
-      <div class="nav-item" data-view="approvals" onclick="switchView('approvals')">
-        <i class="fas fa-clipboard-check"></i> HITL Approvals
-        <span class="nav-badge alert" id="approval-badge" style="display:none">0</span>
-      </div>
-      <div class="nav-item" data-view="charting" onclick="switchView('charting')">
-        <i class="fas fa-clipboard-list"></i> EHR / Charting
-      </div>
-      <div class="nav-item" data-view="telemedicine" onclick="switchView('telemedicine')">
-        <i class="fas fa-video"></i> Telehealth
-      </div>
-      <div class="nav-item" data-view="referrals" onclick="switchView('referrals')">
-        <i class="fas fa-arrow-right-arrow-left"></i> Referrals
-      </div>
-
-      <div class="nav-label">Wellness</div>
-      <div class="nav-item" data-view="wellbeing" onclick="switchView('wellbeing')">
-        <i class="fas fa-brain"></i> Wellbeing &amp; Burnout
-      </div>
-
-      <div class="nav-label">Practice Management</div>
-      <div class="nav-item" data-view="roster" onclick="switchView('roster')">
-        <i class="fas fa-calendar-days"></i> Roster &amp; Staffing
-      </div>
-      <div class="nav-item" data-view="practice" onclick="switchView('practice')">
-        <i class="fas fa-chart-line"></i> Practice Operations
-      </div>
-      <div class="nav-item" data-view="claims" onclick="switchView('claims')">
-        <i class="fas fa-file-invoice-dollar"></i> Billing &amp; Claims
-      </div>
-      <div class="nav-item" data-view="finance" onclick="switchView('finance')">
-        <i class="fas fa-wallet"></i> Finance &amp; Loans
-      </div>
-
-      <div class="nav-label">Medical Tools</div>
-      <div class="nav-item" data-view="scribe" onclick="switchView('scribe')">
-        <i class="fas fa-wand-sparkles"></i> AI Scribe
-      </div>
-      <div class="nav-item" data-view="documents" onclick="switchView('documents')">
-        <i class="fas fa-file-medical"></i> Document Generator
-      </div>
-      <div class="nav-item" data-view="risk" onclick="switchView('risk')">
-        <i class="fas fa-shield-halved"></i> Risk &amp; Legal
-      </div>
-    </nav>
-    <div class="sidebar-footer">
-      <div class="nav-item" onclick="logout()" style="color:var(--danger)">
-        <i class="fas fa-sign-out"></i> Log Out
-      </div>
-    </div>
+    <div class="drawer-body" id="brief-content"></div>
   </aside>
 
-  <!-- MAIN -->
-  <main class="main-stage">
-    <header class="header">
-      <button class="hamburger" onclick="toggleMobileMenu()"><i class="fas fa-bars"></i></button>
-      <div class="search-bar">
-        <i class="fas fa-search"></i>
-        <input type="text" id="global-search" placeholder="Search patients, notes, claims..." oninput="handleSearch(this.value)">
+  <!-- PATIENT WORKSPACE OVERLAY -->
+  <div id="workspace-overlay" class="workspace-overlay hidden">
+    <div class="workspace-header">
+      <button class="em-btn ghost sm" onclick="Workspace.close()"><i class="fas fa-arrow-left"></i> Back</button>
+      <div class="ws-patient-info">
+        <span class="ws-patient-name" id="ws-patient-name"></span>
+        <span class="ws-patient-meta" id="ws-patient-meta"></span>
       </div>
-      <div class="header-right">
-        <div class="header-user">
-          <div class="header-avatar"><i class="fas fa-user-doctor"></i></div>
-          <div>
-            <div class="header-user-name" id="display-user-name">Doctor</div>
-            <div class="header-user-role">Verified Provider</div>
-          </div>
-        </div>
-      </div>
-    </header>
-
-    <div class="content">
-      <!-- DASHBOARD -->
-      <section id="view-dashboard" class="view">
-        <div class="page-title"><h2>Clinical Hub</h2></div>
-        <div class="stats-grid" id="dashboard-stats"></div>
-        <div class="hub-grid">
-          <div class="card">
-            <div class="card-header">Today's Appointments</div>
-            <div class="card-body" id="dashboard-appointments"></div>
-          </div>
-          <div class="card">
-            <div class="card-header">Quick Actions</div>
-            <div class="card-body">
-              <button class="btn btn-primary btn-block" onclick="switchView('charting');openModal('patients')" style="margin-bottom:0.75rem"><i class="fas fa-user-plus"></i> New Patient</button>
-              <button class="btn btn-ghost btn-block" onclick="switchView('charting');openModal('visits')" style="margin-bottom:0.75rem"><i class="fas fa-clipboard-list"></i> New SOAP Note</button>
-              <button class="btn btn-ghost btn-block" onclick="switchView('documents')" style="margin-bottom:0.75rem"><i class="fas fa-file-medical"></i> Generate Document</button>
-              <button class="btn btn-ghost btn-block" onclick="switchView('wellbeing');openModal('wellbeing')"><i class="fas fa-brain"></i> Quick Check-in</button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- HITL APPROVALS -->
-      <section id="view-approvals" class="view hidden">
-        <div class="page-title">
-          <h2>Human-in-the-Loop Approvals</h2>
-          <button class="btn btn-ghost btn-sm" onclick="loadApprovals()"><i class="fas fa-refresh"></i> Refresh</button>
-        </div>
-        <div class="stats-grid" id="approval-stats"></div>
-        <div class="card">
-          <div class="card-header">Pending Approvals <span class="badge" id="pending-count">0</span></div>
-          <div class="card-body" id="approvals-list"></div>
-        </div>
-        <div class="card" style="margin-top:1.5rem">
-          <div class="card-header">Audit Trail</div>
-          <div class="card-body table-wrap" id="audit-table-wrap"></div>
-        </div>
-      </section>
-
-      <!-- EHR / CHARTING -->
-      <section id="view-charting" class="view hidden">
-        <div class="page-title">
-          <h2>EHR / Charting</h2>
-          <div class="page-title-actions">
-            <button class="btn btn-ghost btn-sm" onclick="openModal('patients')"><i class="fas fa-user-plus"></i> Patient</button>
-            <button class="btn btn-primary btn-sm" onclick="openModal('visits')"><i class="fas fa-clipboard-list"></i> SOAP Note</button>
-          </div>
-        </div>
-        <div class="ehr-grid">
-          <div class="card">
-            <div class="card-header">
-              <span>Patient Registry</span>
-              <span class="badge" id="patients-count">0</span>
-            </div>
-            <div class="card-body table-wrap" id="patients-table-wrap"></div>
-          </div>
-          <div class="card">
-            <div class="card-header">
-              <span>Visit History (SOAP)</span>
-              <span class="badge" id="visits-count">0</span>
-            </div>
-            <div class="card-body table-wrap" id="visits-table-wrap"></div>
-          </div>
-        </div>
-      </section>
-
-      <!-- TELEMEDICINE -->
-      <section id="view-telemedicine" class="view hidden">
-        <div class="page-title">
-          <h2>Telehealth Consultations</h2>
-          <button class="btn btn-primary btn-sm" onclick="openModal('consultations')"><i class="fas fa-plus"></i> New Consult</button>
-        </div>
-        <div class="stats-grid" id="tele-stats"></div>
-        <div class="card">
-          <div class="card-header">Consultations</div>
-          <div class="card-body table-wrap" id="consultations-table-wrap"></div>
-        </div>
-      </section>
-
-      <!-- REFERRALS -->
-      <section id="view-referrals" class="view hidden">
-        <div class="page-title">
-          <h2>Overflow &amp; Referrals</h2>
-          <button class="btn btn-primary btn-sm" onclick="openModal('referrals')"><i class="fas fa-plus"></i> New Referral</button>
-        </div>
-        <div class="stats-grid" id="referral-stats"></div>
-        <div class="card">
-          <div class="card-header">Active Referrals</div>
-          <div class="card-body table-wrap" id="referrals-table-wrap"></div>
-        </div>
-      </section>
-
-      <!-- WELLBEING -->
-      <section id="view-wellbeing" class="view hidden">
-        <div class="page-title">
-          <h2>Wellbeing &amp; Burnout Tracking</h2>
-          <button class="btn btn-primary btn-sm" onclick="openModal('wellbeing')"><i class="fas fa-plus"></i> New Check-in</button>
-        </div>
-        <div class="stats-grid" id="wellbeing-stats"></div>
-        <div class="card">
-          <div class="card-header">Recent Check-ins</div>
-          <div class="card-body table-wrap" id="wellbeing-table-wrap"></div>
-        </div>
-      </section>
-
-      <!-- ROSTER -->
-      <section id="view-roster" class="view hidden">
-        <div class="page-title">
-          <h2>Roster &amp; Staffing</h2>
-          <button class="btn btn-primary btn-sm" onclick="openModal('shifts')"><i class="fas fa-plus"></i> New Shift</button>
-        </div>
-        <div class="stats-grid" id="roster-stats"></div>
-        <div class="card">
-          <div class="card-header">Shifts</div>
-          <div class="card-body table-wrap" id="shifts-table-wrap"></div>
-        </div>
-      </section>
-
-      <!-- RISK -->
-      <section id="view-risk" class="view hidden">
-        <div class="page-title">
-          <h2>Risk &amp; Legal Cases</h2>
-          <button class="btn btn-primary btn-sm" onclick="openModal('legal_cases')"><i class="fas fa-plus"></i> New Case</button>
-        </div>
-        <div class="stats-grid" id="risk-stats"></div>
-        <div class="card">
-          <div class="card-header">Cases</div>
-          <div class="card-body table-wrap" id="cases-table-wrap"></div>
-        </div>
-      </section>
-
-      <!-- PRACTICE -->
-      <section id="view-practice" class="view hidden">
-        <div class="page-title">
-          <h2>Practice Operations</h2>
-          <div class="page-title-actions">
-            <button class="btn btn-ghost btn-sm" onclick="openModal('appointments')"><i class="fas fa-plus"></i> Appointment</button>
-            <button class="btn btn-primary btn-sm" onclick="openModal('practice_kpis')"><i class="fas fa-chart-bar"></i> KPI</button>
-          </div>
-        </div>
-        <div class="stats-grid" id="practice-stats"></div>
-        <div class="ehr-grid">
-          <div class="card">
-            <div class="card-header"><span>Appointments</span><span class="badge" id="appt-count">0</span></div>
-            <div class="card-body table-wrap" id="appointments-table-wrap"></div>
-          </div>
-          <div class="card">
-            <div class="card-header"><span>Monthly KPIs</span><span class="badge" id="kpi-count">0</span></div>
-            <div class="card-body table-wrap" id="kpis-table-wrap"></div>
-          </div>
-        </div>
-      </section>
-
-      <!-- FINANCE -->
-      <section id="view-finance" class="view hidden">
-        <div class="page-title">
-          <h2>Finance &amp; Loans</h2>
-          <div class="page-title-actions">
-            <button class="btn btn-ghost btn-sm" onclick="openModal('transactions')"><i class="fas fa-plus"></i> Transaction</button>
-            <button class="btn btn-primary btn-sm" onclick="openModal('loans')"><i class="fas fa-plus"></i> Loan</button>
-          </div>
-        </div>
-        <div class="stats-grid" id="finance-stats"></div>
-        <div class="ehr-grid">
-          <div class="card">
-            <div class="card-header"><span>Transactions</span><span class="badge" id="txn-count">0</span></div>
-            <div class="card-body table-wrap" id="transactions-table-wrap"></div>
-          </div>
-          <div class="card">
-            <div class="card-header"><span>Loans</span><span class="badge" id="loan-count">0</span></div>
-            <div class="card-body table-wrap" id="loans-table-wrap"></div>
-          </div>
-        </div>
-      </section>
-
-      <!-- CLAIMS -->
-      <section id="view-claims" class="view hidden">
-        <div class="page-title">
-          <h2>Billing &amp; Insurance Claims</h2>
-          <button class="btn btn-primary btn-sm" onclick="openModal('claims')"><i class="fas fa-plus"></i> New Claim</button>
-        </div>
-        <div class="stats-grid" id="claims-stats"></div>
-        <div class="card">
-          <div class="card-header">Claims</div>
-          <div class="card-body table-wrap" id="claims-table-wrap"></div>
-        </div>
-      </section>
-
-      <!-- AI SCRIBE -->
-      <section id="view-scribe" class="view hidden">
-        <div class="page-title"><h2>AI Medical Scribe</h2></div>
-        <div class="ehr-grid">
-          <div class="card">
-            <div class="card-header">Transcript Input</div>
-            <div class="card-body">
-              <div class="form-group">
-                <label>Patient Name</label>
-                <input type="text" id="scribe-patient" placeholder="Patient name">
-              </div>
-              <div class="form-group">
-                <label>Consultation Notes / Transcript</label>
-                <textarea id="scribe-input" rows="8" placeholder="Paste consultation notes, or type transcript here..."></textarea>
-              </div>
-              <button class="btn btn-primary" onclick="runAiScribe()" id="scribe-btn"><i class="fas fa-wand-sparkles"></i> Generate SOAP Note</button>
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-header">Generated Note</div>
-            <div class="card-body">
-              <div id="scribe-output" class="scribe-output" style="min-height:300px;">
-                <div class="empty-state"><i class="fas fa-file-medical" style="font-size:3rem;opacity:0.2;margin-bottom:1rem;display:block"></i>Paste notes on the left and click Generate</div>
-              </div>
-              <div class="scribe-actions hidden" id="scribe-actions">
-                <button class="btn btn-ghost btn-sm" onclick="copyScribeNote()"><i class="fas fa-copy"></i> Copy</button>
-                <button class="btn btn-ghost btn-sm" onclick="saveScribeToVisit()"><i class="fas fa-save"></i> Save to EHR</button>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="card" style="margin-top:1.5rem">
-          <div class="card-header"><span>Recent Scribe Jobs</span><span class="badge" id="scribe-count">0</span></div>
-          <div class="card-body table-wrap" id="scribe-table-wrap"></div>
-        </div>
-      </section>
-
-      <!-- DOCUMENT GENERATOR -->
-      <section id="view-documents" class="view hidden">
-        <div class="page-title"><h2>Document Generator</h2></div>
-        <div class="ehr-grid">
-          <div class="card">
-            <div class="card-header">Document Parameters</div>
-            <div class="card-body">
-              <div class="form-group">
-                <label>Patient</label>
-                <select id="doc-patient"><option value="">Select a patient...</option></select>
-              </div>
-              <div class="form-group">
-                <label>Document Type</label>
-                <select id="doc-type" onchange="toggleDocFields()">
-                  <option value="sick_note">Sick Note / Medical Certificate</option>
-                  <option value="prescription">Prescription</option>
-                  <option value="referral">Referral Letter</option>
-                  <option value="clinical_note">Clinical Note</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label>Clinical Details / Context</label>
-                <textarea id="doc-context" rows="5" placeholder="Include consultation notes, diagnosis, instructions..."></textarea>
-              </div>
-
-              <!-- Prescription fields -->
-              <div id="prescription-fields" class="hidden doc-section">
-                <div class="doc-section-label"><i class="fas fa-pills"></i> Medications</div>
-                <div id="med-list">
-                  <div class="med-row">
-                    <input class="med-name" placeholder="Medication">
-                    <input class="med-dose" placeholder="Dose">
-                    <input class="med-freq" placeholder="Frequency">
-                    <input class="med-qty" placeholder="Qty">
-                    <button class="btn btn-sm btn-danger" onclick="this.closest('.med-row').remove()"><i class="fas fa-times"></i></button>
-                  </div>
-                </div>
-                <button class="btn btn-sm btn-ghost" onclick="addMedRow()" style="margin-top:0.5rem"><i class="fas fa-plus"></i> Add Medication</button>
-              </div>
-
-              <!-- SOAP fields -->
-              <div id="soap-fields" class="doc-section">
-                <div class="doc-section-label"><i class="fas fa-clipboard-list"></i> SOAP Note</div>
-                <div class="form-group"><label>Subjective (S)</label><textarea id="doc-soap-s" rows="2" placeholder="History of presenting complaint..."></textarea></div>
-                <div class="form-group"><label>Objective (O)</label><textarea id="doc-soap-o" rows="2" placeholder="Examination findings, vitals..."></textarea></div>
-                <div class="form-group"><label>Assessment (A)</label><textarea id="doc-soap-a" rows="2" placeholder="Diagnosis, differential..."></textarea></div>
-                <div class="form-group"><label>Plan (P)</label><textarea id="doc-soap-p" rows="2" placeholder="Treatment, follow-up..."></textarea></div>
-              </div>
-
-              <button class="btn btn-primary btn-block" onclick="generateDocument()"><i class="fas fa-file-medical"></i> Generate Document</button>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="card-header">
-              Document Preview
-              <div class="card-header-actions hidden" id="doc-preview-actions">
-                <button class="btn btn-sm btn-ghost" onclick="copyDocumentText()"><i class="fas fa-copy"></i> Copy</button>
-                <button class="btn btn-sm btn-primary" onclick="downloadDocumentPDF()"><i class="fas fa-download"></i> PDF</button>
-              </div>
-            </div>
-            <div class="card-body">
-              <div id="doc-preview-placeholder" class="empty-state" style="padding:5rem 2rem">
-                <i class="fas fa-file-medical" style="font-size:4rem;opacity:0.15;margin-bottom:1rem;display:block"></i>
-                <p>Fill in patient details and clinical context,<br>then click Generate Document to preview.</p>
-              </div>
-              <div id="doc-preview" class="doc-preview hidden"></div>
-            </div>
-          </div>
-        </div>
-      </section>
+      <span class="tag" id="ws-patient-role"></span>
+      <button class="em-btn ghost sm" onclick="Workspace.close()"><i class="fas fa-times"></i></button>
     </div>
-  </main>
+    <div class="workspace-tabs" id="ws-tabs">
+      <button class="ws-tab active" data-tab="overview" onclick="Workspace.switchTab('overview')"><i class="fas fa-user"></i> Overview</button>
+      <button class="ws-tab" data-tab="documents" onclick="Workspace.switchTab('documents')"><i class="fas fa-file-medical"></i> Documents</button>
+      <button class="ws-tab" data-tab="records" onclick="Workspace.switchTab('records')"><i class="fas fa-folder-open"></i> Records</button>
+      <button class="ws-tab" data-tab="ai" onclick="Workspace.switchTab('ai')"><i class="fas fa-robot"></i> AI Tools</button>
+    </div>
+    <div class="workspace-content" id="ws-content"></div>
+  </div>
 </div>
 
 <!-- MODAL -->
@@ -445,11 +214,42 @@
   </div>
 </div>
 
-<!-- TOAST -->
-<div id="toast" class="toast"></div>
+  <!-- SIGNATURE PAD OVERLAY -->
+  <div id="sig-pad-overlay" class="sig-pad-overlay hidden" onclick="Workspace.closeSigPad()">
+    <div class="sig-pad-modal" onclick="event.stopPropagation()">
+      <div class="sig-pad-header">
+        <h3><i class="fas fa-pen-nib"></i> Draw Your Signature</h3>
+        <button class="btn-close" onclick="Workspace.closeSigPad()">&times;</button>
+      </div>
+      <div class="sig-pad-body">
+        <p class="sig-pad-hint">Draw your signature in the box below</p>
+        <div class="sig-pad-canvas-wrap">
+          <canvas id="sig-pad-canvas" width="480" height="180"></canvas>
+        </div>
+        <div class="sig-pad-actions">
+          <button class="em-btn ghost sm" onclick="Workspace.clearSigPad()"><i class="fas fa-eraser"></i> Clear</button>
+          <button class="em-btn primary sm" onclick="Workspace.saveSigPad()"><i class="fas fa-check"></i> Save Signature</button>
+        </div>
+        <p class="sig-pad-note">This signature will be used on all generated documents</p>
+      </div>
+    </div>
+  </div>
 
-<!-- html2pdf for PDF export -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <!-- TOAST -->
+  <div id="toast" class="toast"></div>
+
+<!-- SCRIPTS -->
+<script src="js/ollama.js"></script>
+<script src="js/workspace.js"></script>
+<script src="js/app-shell.js"></script>
+<script src="js/calendar.js"></script>
+<script src="js/patients.js"></script>
+<script src="js/clinical-tools.js"></script>
+<script src="js/claims.js"></script>
+<script src="js/hitl.js"></script>
+<script src="js/analytics.js"></script>
+<script src="js/operations.js"></script>
+<script src="js/clinical-brief.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
