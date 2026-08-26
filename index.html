@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Leviathan — Ambient Doctor Platform</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@event-calendar/build@5.12.0/dist/event-calendar.min.css">
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@event-calendar/build@5.12.0/dist/event-calendar.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+</head>
+<body>
+
+<!-- SPLASH -->
+<div id="splash" class="splash">
+  <div class="splash-inner">
+    <div class="splash-icon"><i class="fas fa-heart-pulse"></i></div>
+    <h2>Leviathan</h2>
+    <p class="splash-sub">Doctors on Wheels — Clinical Copilot</p>
+    <div class="splash-dots"><span>.</span><span>.</span><span>.</span></div>
+  </div>
+</div>
+
+<!-- AUTH -->
+<div id="auth-screen" class="auth-screen hidden">
+  <div class="auth-card">
+    <div class="auth-brand">
+      <div class="auth-icon"><i class="fas fa-heart-pulse"></i></div>
+      <h1>Leviathan</h1>
+      <p>Doctors on Wheels Clinical Copilot</p>
+    </div>
+    <div id="auth-login">
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="login-email" placeholder="doctor@practice.com" value="testuser@doctors.health">
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="login-password" placeholder="Enter password">
+      </div>
+      <button onclick="login()" class="btn btn-primary btn-block">Sign In</button>
+      <div id="auth-error" class="auth-error"></div>
+      <hr style="margin:1rem 0;border:none;border-top:1px solid var(--border)">
+      <p style="text-align:center;font-size:0.8rem;color:var(--text-muted);margin-bottom:0.75rem">First time? Create an account:</p>
+      <div class="form-group">
+        <input type="text" id="signup-name" placeholder="Full name (e.g. Dr Smith)">
+      </div>
+      <button onclick="signup()" class="btn btn-ghost btn-block">Create Account</button>
+    </div>
+    <div id="auth-user" class="hidden">
+      <p class="auth-signed-in" id="auth-user-text"></p>
+      <button onclick="logout()" class="btn btn-ghost btn-block">Sign Out</button>
+    </div>
+  </div>
+</div>
+
+<!-- APP SHELL -->
+<div id="app" class="app-shell hidden">
+  <div id="drawer-overlay" class="drawer-overlay" onclick="ClinicalBrief.close()"></div>
+
+  <!-- TAB VIEWS -->
+  <main class="main-content">
+    <!-- SCHEDULE TAB -->
+    <section id="tab-schedule" class="tab-view">
+      <div class="schedule-layout">
+        <div class="calendar-panel">
+          <div id="calendar-container" class="calendar-container"></div>
+        </div>
+        <div class="queue-panel">
+          <div class="queue-header">
+            <h3><i class="fas fa-users"></i> Patient Queue</h3>
+          </div>
+          <div id="patient-queue" class="patient-queue"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- PATIENTS TAB -->
+    <section id="tab-patients" class="tab-view hidden">
+      <div class="tab-header">
+        <h2>Patient Registry</h2>
+        <p class="tab-subtitle">Patient records and management</p>
+      </div>
+      <div class="stats-grid" id="patient-stats"></div>
+      <div class="search-bar"><i class="fas fa-search"></i><input type="text" id="patient-search" placeholder="Search by name or email..." oninput="Patients.search(this.value)"></div>
+      <div class="patients-layout">
+        <div class="patients-list-panel">
+          <div class="clinical-card"><div class="clinical-card-header">All Patients</div><div class="clinical-card-body" style="padding:0"><div id="patient-list"><div class="empty-state">Loading patients...</div></div></div></div>
+        </div>
+        <div class="patients-detail-panel">
+          <div id="patient-detail"><div class="empty-state"><i class="fas fa-user" style="font-size:2rem;opacity:0.2;margin-bottom:0.5rem;display:block"></i>Select a patient to view details</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CLINICAL TAB -->
+    <section id="tab-clinical" class="tab-view hidden">
+      <div class="tab-header">
+        <h2>Clinical Tools</h2>
+        <p class="tab-subtitle">AI-powered clinical decision support — decision-support only, verify before acting</p>
+      </div>
+      <div id="clinical-sub-view"></div>
+      <div id="clinical-tool-grid"></div>
+    </section>
+
+    <!-- CLAIMS TAB -->
+    <section id="tab-claims" class="tab-view hidden">
+      <div class="tab-header">
+        <h2>Claims Management</h2>
+        <p class="tab-subtitle">Medical aid claims, PMB verification, and billing</p>
+      </div>
+      <div class="stats-grid" id="claim-stats"></div>
+      <div class="clinical-card">
+        <div class="clinical-card-header" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>Recent Claims</span>
+        </div>
+        <div class="clinical-card-body" style="padding:0;">
+          <div id="claim-list"><div class="empty-state">Loading claims...</div></div>
+        </div>
+      </div>
+      <div id="claim-detail" class="clinical-card hidden" style="margin-top:1rem;"></div>
+    </section>
+
+    <!-- VERIFICATION & HITL TAB -->
+    <section id="tab-verification" class="tab-view hidden">
+      <div class="tab-header">
+        <h2>Verification & HITL</h2>
+        <p class="tab-subtitle">Human-in-the-loop approvals and insurance verification</p>
+      </div>
+      <div class="stats-grid" id="hitl-stats"></div>
+      <div class="hitl-layout">
+        <div class="hitl-pending-panel">
+          <div class="card">
+            <div class="card-header">Pending Approvals</div>
+            <div class="card-body" id="hitl-pending"></div>
+          </div>
+        </div>
+        <div class="hitl-resolved-panel">
+          <div class="card">
+            <div class="card-header">Resolved</div>
+            <div class="card-body table-wrap" id="hitl-resolved"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ANALYTICS TAB -->
+    <section id="tab-analytics" class="tab-view hidden">
+      <div class="tab-header">
+        <h2>Analytics Dashboard</h2>
+        <p class="tab-subtitle">Revenue, claims, and clinical metrics</p>
+      </div>
+      <div class="stats-grid" id="analytics-stats"></div>
+      <div class="charts-grid" id="analytics-charts"></div>
+    </section>
+
+    <!-- OPERATIONS TAB -->
+    <section id="tab-operations" class="tab-view hidden">
+      <div class="tab-header">
+        <h2>Operations</h2>
+        <p class="tab-subtitle">System health, agents, and configuration</p>
+      </div>
+      <div class="operations-grid">
+        <div id="operations-health"></div>
+        <div id="operations-agents"></div>
+        <div id="operations-info"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- CLINICAL BRIEF DRAWER -->
+  <aside id="clinical-drawer" class="clinical-drawer">
+    <div class="drawer-header">
+      <h3><i class="fas fa-clipboard-list"></i> Clinical Brief</h3>
+      <button class="btn-close" onclick="ClinicalBrief.close()">&times;</button>
+    </div>
+    <div class="drawer-body" id="brief-content"></div>
+  </aside>
+
+  <!-- PATIENT WORKSPACE OVERLAY -->
+  <div id="workspace-overlay" class="workspace-overlay hidden">
+    <div class="workspace-header">
+      <button class="em-btn ghost sm" onclick="Workspace.close()"><i class="fas fa-arrow-left"></i> Back</button>
+      <div class="ws-patient-info">
+        <span class="ws-patient-name" id="ws-patient-name"></span>
+        <span class="ws-patient-meta" id="ws-patient-meta"></span>
+      </div>
+      <span class="tag" id="ws-patient-role"></span>
+      <button class="em-btn ghost sm" onclick="Workspace.close()"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="workspace-tabs" id="ws-tabs">
+      <button class="ws-tab active" data-tab="overview" onclick="Workspace.switchTab('overview')"><i class="fas fa-user"></i> Overview</button>
+      <button class="ws-tab" data-tab="documents" onclick="Workspace.switchTab('documents')"><i class="fas fa-file-medical"></i> Documents</button>
+      <button class="ws-tab" data-tab="records" onclick="Workspace.switchTab('records')"><i class="fas fa-folder-open"></i> Records</button>
+      <button class="ws-tab" data-tab="ai" onclick="Workspace.switchTab('ai')"><i class="fas fa-robot"></i> AI Tools</button>
+    </div>
+    <div class="workspace-content" id="ws-content"></div>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div id="modal-overlay" class="modal-overlay" onclick="closeModal()">
+  <div class="modal-content" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3 id="modal-title"></h3>
+      <button onclick="closeModal()" class="btn-close">&times;</button>
+    </div>
+    <form id="modal-form" class="modal-body"></form>
+  </div>
+</div>
+
+  <!-- SIGNATURE PAD OVERLAY -->
+  <div id="sig-pad-overlay" class="sig-pad-overlay hidden" onclick="Workspace.closeSigPad()">
+    <div class="sig-pad-modal" onclick="event.stopPropagation()">
+      <div class="sig-pad-header">
+        <h3><i class="fas fa-pen-nib"></i> Draw Your Signature</h3>
+        <button class="btn-close" onclick="Workspace.closeSigPad()">&times;</button>
+      </div>
+      <div class="sig-pad-body">
+        <p class="sig-pad-hint">Draw your signature in the box below</p>
+        <div class="sig-pad-canvas-wrap">
+          <canvas id="sig-pad-canvas" width="480" height="180"></canvas>
+        </div>
+        <div class="sig-pad-actions">
+          <button class="em-btn ghost sm" onclick="Workspace.clearSigPad()"><i class="fas fa-eraser"></i> Clear</button>
+          <button class="em-btn primary sm" onclick="Workspace.saveSigPad()"><i class="fas fa-check"></i> Save Signature</button>
+        </div>
+        <p class="sig-pad-note">This signature will be used on all generated documents</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST -->
+  <div id="toast" class="toast"></div>
+
+<!-- SCRIPTS -->
+<script src="js/ollama.js"></script>
+<script src="js/workspace.js"></script>
+<script src="js/app-shell.js"></script>
+<script src="js/calendar.js"></script>
+<script src="js/patients.js"></script>
+<script src="js/clinical-tools.js"></script>
+<script src="js/claims.js"></script>
+<script src="js/hitl.js"></script>
+<script src="js/analytics.js"></script>
+<script src="js/operations.js"></script>
+<script src="js/clinical-brief.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
